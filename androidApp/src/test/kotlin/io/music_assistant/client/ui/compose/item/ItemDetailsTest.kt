@@ -135,4 +135,31 @@ class ItemDetailsTest {
             onNode(hasText(chapters[1].name)).assertIsDisplayed()
         }
     }
+
+    @Test
+    fun `displays collection members`() {
+        val books = listOf(
+            AppMediaItemFixtures.audiobook(name = "Mort"),
+            AppMediaItemFixtures.audiobook(name = "Guards! Guards!"),
+        )
+        val collection = AppMediaItemFixtures.audiobookCollection(name = "Discworld", items = books)
+
+        composeTestRule.setInspectableContent {
+            ItemDetails(
+                state = ItemDetailsViewModel.State(
+                    itemState = DataState.Data(collection),
+                    albumsState = DataState.NoData(),
+                    playableItemsState = DataState.NoData(),
+                ),
+                geEditablePlaylists = suspend { emptyList() },
+                fetchColors = NoColors,
+            )
+        }
+
+        composeTestRule.onAllNodes(hasText(collection.displayName)).onFirst().assertIsDisplayed()
+        composeTestRule.inScrollable("LazyVerticalGrid") {
+            onNode(hasContentDescription(books[0].displayName)).assertIsDisplayed()
+            onNode(hasContentDescription(books[1].displayName)).assertIsDisplayed()
+        }
+    }
 }

@@ -17,6 +17,7 @@ import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.PlayableItem
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
@@ -137,6 +138,11 @@ class ItemDetailsViewModel(
             MediaType.PODCAST -> Request.Podcast.get(itemId, providerId)
             MediaType.AUDIOBOOK -> Request.Audiobook.get(itemId, providerId)
             MediaType.GENRE -> Request.Genre.get(itemId, providerId)
+            MediaType.COLLECTION -> when (MediaCollection.itemMediaTypeOf(itemId)) {
+                MediaType.AUDIOBOOK -> Request.Audiobook.getCollection(itemId)
+                else -> return null
+            }
+
             else -> return null
         }
 
@@ -196,7 +202,8 @@ class ItemDetailsViewModel(
                 loadGenreOverview(item.itemId, item.provider)
             }
 
-            is Audiobook -> {
+            // Chapters and collection members both arrive with the item; nothing left to fetch.
+            is Audiobook, is MediaCollection -> {
                 _state.update {
                     it.copy(
                         albumsState = DataState.NoData(),
@@ -553,6 +560,9 @@ private fun ItemDetailsTab.subState(
     ItemDetailsTab.GENRE_ARTISTS -> state.artistsState
     ItemDetailsTab.AUDIOBOOK_CHAPTERS ->
         DataState.Data((state.itemOrNull() as? Audiobook)?.chapters.orEmpty())
+
+    ItemDetailsTab.COLLECTION_ITEMS ->
+        DataState.Data((state.itemOrNull() as? MediaCollection)?.items.orEmpty())
 }
 
 private fun DataState<out List<*>>.hasItems(): Boolean = when (this) {

@@ -6,6 +6,7 @@ import io.music_assistant.client.data.model.client.items.Album
 import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Audiobook
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
 
@@ -24,6 +25,7 @@ enum class ItemDetailsTab(
     AUDIOBOOK_CHAPTERS(null, null),
     GENRE_ARTISTS(null, MediaType.ARTIST),
     GENRE_ALBUMS(null, MediaType.ALBUM),
+    COLLECTION_ITEMS(null, null),
 }
 
 fun tabsFor(item: AppMediaItem): List<ItemDetailsTab> = when (item) {
@@ -32,5 +34,6 @@ fun tabsFor(item: AppMediaItem): List<ItemDetailsTab> = when (item) {
     is Podcast -> listOf(ItemDetailsTab.PODCAST_EPISODES)
     is Audiobook -> listOf(ItemDetailsTab.AUDIOBOOK_CHAPTERS)
     is Genre -> listOf(ItemDetailsTab.GENRE_ARTISTS, ItemDetailsTab.GENRE_ALBUMS)
+    is MediaCollection -> listOf(ItemDetailsTab.COLLECTION_ITEMS)
     else -> emptyList()
 }

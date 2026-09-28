@@ -470,6 +470,15 @@ data class Request @OptIn(ExperimentalUuidApi::class) constructor(
             providerInstanceIdOrDomain: String,
         ) = Library.get(APICommands.KIND_AUDIOBOOKS, itemId, providerInstanceIdOrDomain)
 
+        fun getCollection(
+            itemId: String,
+        ) = Request(
+            command = APICommands.MUSIC_AUDIOBOOKS_GET_COLLECTION,
+            args = buildJsonObject {
+                put("item_id", JsonPrimitive(itemId))
+            },
+        )
+
         fun listLibrary(
             favorite: Boolean? = null,
             search: String? = null,

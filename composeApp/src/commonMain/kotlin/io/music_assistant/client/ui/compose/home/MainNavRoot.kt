@@ -50,6 +50,7 @@ import io.music_assistant.client.data.model.client.items.Album
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
 import io.music_assistant.client.data.model.client.items.RecommendationFolder
@@ -367,6 +368,7 @@ private fun mainNavEntryProvider(
                         is Podcast,
                         is Audiobook,
                         is Genre,
+                        is MediaCollection,
                             -> {
                             multiBackStack.add(
                                 MainNav.ItemDetails(
@@ -442,6 +444,7 @@ private fun mainNavEntryProvider(
                         is Podcast,
                         is Audiobook,
                         is Genre,
+                        is MediaCollection,
                             -> {
                             multiBackStack.add(
                                 MainNav.ItemDetails(
@@ -488,6 +491,7 @@ private fun mainNavEntryProvider(
                         is Podcast,
                         is Audiobook,
                         is Genre,
+                        is MediaCollection,
                         -> multiBackStack.add(
                             MainNav.ItemDetails(
                                 itemId = item.itemId,
@@ -521,6 +525,7 @@ private fun mainNavEntryProvider(
                         is Podcast,
                         is Audiobook,
                         is Genre,
+                        is MediaCollection,
                             -> {
                             multiBackStack.add(
                                 MainNav.ItemDetails(

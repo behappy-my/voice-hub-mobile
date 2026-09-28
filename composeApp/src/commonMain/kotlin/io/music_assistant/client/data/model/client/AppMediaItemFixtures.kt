@@ -3,11 +3,13 @@ package io.music_assistant.client.data.model.client
 import io.music_assistant.client.data.model.client.items.Album
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
+import io.music_assistant.client.data.model.client.items.AudiobookCollection
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
 import io.music_assistant.client.data.model.client.items.PodcastEpisode
 import io.music_assistant.client.data.model.client.items.Track
 import io.music_assistant.client.data.model.server.ProviderMapping
+import io.music_assistant.client.data.model.server.ServerMediaItem
 import io.music_assistant.client.utils.UniqueIdGenerator
 
 object AppMediaItemFixtures {
@@ -187,6 +189,20 @@ object AppMediaItemFixtures {
             fullyPlayed = null,
             resumePositionMs = null,
             version = null,
+        )
+    }
+
+    fun audiobookCollection(
+        name: String = "Collection ${uniqueIdGenerator.nextInt()}",
+        items: List<Audiobook> = emptyList(),
+    ): AudiobookCollection {
+        val itemId = "audiobook___$name"
+        return AudiobookCollection(
+            itemId = itemId,
+            provider = ServerMediaItem.LIBRARY_PROVIDER,
+            name = name,
+            uri = "library://collection/$itemId",
+            items = items,
         )
     }
 

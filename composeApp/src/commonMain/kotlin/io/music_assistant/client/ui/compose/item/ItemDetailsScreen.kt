@@ -60,6 +60,7 @@ import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.PlayableItem
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
@@ -77,6 +78,7 @@ import io.music_assistant.client.ui.compose.common.ExtractedColorsSource
 import io.music_assistant.client.ui.compose.common.NoOverscroll
 import io.music_assistant.client.ui.compose.common.items.AlbumWithMenu
 import io.music_assistant.client.ui.compose.common.items.ArtistWithMenu
+import io.music_assistant.client.ui.compose.common.items.AudiobookWithMenu
 import io.music_assistant.client.ui.compose.common.items.CategoryRow
 import io.music_assistant.client.ui.compose.common.items.ItemCategory
 import io.music_assistant.client.ui.compose.common.items.ItemSortChip
@@ -291,11 +293,20 @@ fun ItemDetails(
     }
 }
 
+/**
+ * The media type this tab's list shows, driving both its label and its view-mode toggle. A
+ * collection's is only known from the item, since one tab serves every collected type.
+ */
+private fun ItemDetailsTab.viewMediaTypeFor(item: AppMediaItem): MediaType? = when (this) {
+    ItemDetailsTab.COLLECTION_ITEMS -> (item as? MediaCollection)?.itemMediaType
+    else -> viewMediaType
+}
+
 /** Tab label. Chapters have a dedicated string; every other tab borrows its media-type label. */
-private fun ItemDetailsTab.stringResource(): StringResource? = when (this) {
+private fun ItemDetailsTab.stringResource(item: AppMediaItem): StringResource? = when (this) {
     ItemDetailsTab.AUDIOBOOK_CHAPTERS -> Res.string.media_type_chapters
     ItemDetailsTab.PODCAST_EPISODES -> Res.string.media_type_episodes
-    else -> viewMediaType?.stringResource()
+    else -> viewMediaTypeFor(item)?.stringResource()
 }
 
 @Composable
@@ -423,6 +434,7 @@ private fun ItemContent(
                     val tabsSlot: @Composable () -> Unit = {
                         TabsBar(
                             tabs = tabs,
+                            item = item,
                             selectedIndex = safeIndex,
                             controlTint = colors.controlTint,
                             onTabSelected = { onTabSelected(tabs[it]) },
@@ -477,6 +489,7 @@ private fun ItemContent(
 @Composable
 private fun TabsBar(
     tabs: List<ItemDetailsTab>,
+    item: AppMediaItem,
     selectedIndex: Int,
     controlTint: Color,
     onTabSelected: (Int) -> Unit,
@@ -528,7 +541,7 @@ private fun TabsBar(
                     onClick = { onTabSelected(i) },
                     text = {
                         Text(
-                            text = tab.stringResource()?.let { stringResource(it) }.orEmpty(),
+                            text = tab.stringResource(item)?.let { stringResource(it) }.orEmpty(),
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                             color = controlTint,
                         )
@@ -546,7 +559,7 @@ private fun TabsBar(
             )
         }
 
-        currentTab.viewMediaType?.let { viewMediaType ->
+        currentTab.viewMediaTypeFor(item)?.let { viewMediaType ->
             ViewModeToggle(
                 viewMode = viewModeProvider(viewMediaType),
                 onToggleViewMode = { onToggleViewMode(viewMediaType) },
@@ -632,6 +645,23 @@ private fun TabContent(
             tabsSlot = tabsSlot,
             gridState = gridState,
         )
+
+        ItemDetailsTab.COLLECTION_ITEMS -> (item as? MediaCollection)?.let { collection ->
+            CollectionItemsTabContent(
+                collection = collection,
+                viewModeProvider = viewModeProvider,
+                onNavigateClick = onNavigateClick,
+                onPlayChildClick = onPlayChildClick,
+                playlistActions = playlistActions,
+                progressActions = progressActions,
+                libraryActions = libraryActions,
+                providerIconFetcher = providerIconFetcher,
+                contentPadding = contentPadding,
+                heroSlot = heroSlot,
+                tabsSlot = tabsSlot,
+                gridState = gridState,
+            )
+        }
     }
 }
 
@@ -799,6 +829,51 @@ private fun ArtistsTabContent(
                     libraryActions = libraryActions,
                     providerIconFetcher = providerIconFetcher,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollectionItemsTabContent(
+    collection: MediaCollection,
+    viewModeProvider: @Composable (MediaType) -> ViewMode,
+    onNavigateClick: (AppMediaItem) -> Unit,
+    onPlayChildClick: PlayHandler<AppMediaItem>,
+    playlistActions: PlaylistActions,
+    progressActions: ProgressActions?,
+    libraryActions: LibraryActions,
+    providerIconFetcher: ProviderIconFetcher,
+    contentPadding: PaddingValues,
+    heroSlot: @Composable () -> Unit,
+    tabsSlot: @Composable () -> Unit,
+    gridState: LazyGridState,
+) {
+    val viewMode = viewModeProvider(collection.itemMediaType)
+    val members = collection.items
+    DetailGrid(contentPadding, heroSlot, tabsSlot, gridState) {
+        val memberKeys = members.lazyListOccurrenceKeys()
+        itemsIndexed(
+            items = members,
+            key = { index, _ -> memberKeys[index] },
+            span = when (viewMode) {
+                ViewMode.LIST -> { _, _ -> GridItemSpan(maxLineSpan) }
+                ViewMode.GRID -> null
+            },
+        ) { _, member ->
+            when (member) {
+                is Audiobook -> AudiobookWithMenu(
+                    item = member,
+                    viewMode = viewMode,
+                    onNavigateClick = onNavigateClick,
+                    onPlayOption = onPlayChildClick,
+                    playlistActions = playlistActions,
+                    libraryActions = libraryActions,
+                    progressActions = progressActions,
+                    providerIconFetcher = providerIconFetcher,
+                )
+
+                else -> Unit
             }
         }
     }
