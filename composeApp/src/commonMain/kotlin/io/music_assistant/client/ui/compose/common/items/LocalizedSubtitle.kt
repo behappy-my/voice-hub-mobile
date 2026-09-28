@@ -3,11 +3,13 @@ package io.music_assistant.client.ui.compose.common.items
 import androidx.compose.runtime.Composable
 import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
 import io.music_assistant.client.data.model.client.items.RadioStation
 import io.music_assistant.client.data.model.client.items.SoundEffect
 import musicassistantclient.composeapp.generated.resources.Res
+import musicassistantclient.composeapp.generated.resources.item_subtitle_collection
 import musicassistantclient.composeapp.generated.resources.item_subtitle_genre
 import musicassistantclient.composeapp.generated.resources.item_subtitle_playlist
 import musicassistantclient.composeapp.generated.resources.item_subtitle_playlist_dynamic
@@ -22,6 +24,7 @@ import org.jetbrains.compose.resources.stringResource
  */
 @Composable
 fun AppMediaItem.localizedSubtitle(): String? = subtitle ?: when (this) {
+    is MediaCollection -> stringResource(Res.string.item_subtitle_collection)
     is Playlist -> stringResource(if (this.isDynamic) Res.string.item_subtitle_playlist_dynamic else Res.string.item_subtitle_playlist)
     is Genre -> stringResource(Res.string.item_subtitle_genre)
     is Podcast -> stringResource(Res.string.item_subtitle_podcast)

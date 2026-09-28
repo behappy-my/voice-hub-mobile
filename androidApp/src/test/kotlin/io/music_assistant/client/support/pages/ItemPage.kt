@@ -79,6 +79,7 @@ class ItemPage(
             MediaType.AUDIOBOOK -> TODO()
             MediaType.PODCAST -> TODO()
             MediaType.PODCAST_EPISODE -> TODO()
+            MediaType.COLLECTION -> TODO()
             MediaType.GENRE -> TODO()
             MediaType.FOLDER -> TODO()
             MediaType.FLOW_STREAM -> TODO()

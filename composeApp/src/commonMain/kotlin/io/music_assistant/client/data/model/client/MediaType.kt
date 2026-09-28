@@ -19,6 +19,7 @@ enum class MediaType(val serverValue: String) {
     AUDIOBOOK("audiobook"),
     PODCAST("podcast"),
     PODCAST_EPISODE("podcast_episode"),
+    COLLECTION("collection"),
     GENRE("genre"),
     FOLDER("folder"),
     FLOW_STREAM("flow_stream"),

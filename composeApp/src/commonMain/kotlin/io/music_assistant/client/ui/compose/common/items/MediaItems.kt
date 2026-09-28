@@ -59,6 +59,7 @@ import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.PlayableItem
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
@@ -1141,6 +1142,74 @@ fun FolderCell(
                 textAlign = TextAlign.Center,
             )
         }
+    }
+}
+
+@Composable
+internal fun CollectionRowItem(
+    modifier: Modifier = Modifier,
+    item: MediaCollection,
+    onClick: (MediaCollection) -> Unit,
+    onLongClick: (MediaCollection) -> Unit,
+) {
+    RowItem(
+        modifier = modifier,
+        name = item.displayName,
+        subtitle = item.localizedSubtitle(),
+        description = contentDescription(item),
+        prefixContent = { CollectionImage(item) },
+        onClick = { onClick(item) },
+        onLongClick = { onLongClick(item) },
+    )
+}
+
+@Composable
+internal fun CollectionGridItem(
+    modifier: Modifier = Modifier,
+    item: MediaCollection,
+    onClick: (MediaCollection) -> Unit,
+    onLongClick: (MediaCollection) -> Unit,
+) {
+    GridItem(
+        modifier = modifier,
+        description = contentDescription(item),
+        onClick = { onClick(item) },
+        onLongClick = { onLongClick(item) },
+    ) {
+        CollectionImage(item)
+        Spacer(Modifier.height(4.dp))
+        MediaItemLabels(
+            title = item.displayName,
+            subtitle = item.localizedSubtitle().orEmpty(),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun CollectionImage(item: MediaCollection) {
+    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+    val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(primaryContainer),
+    ) {
+        val placeholder = rememberPlaceholderPainter(
+            backgroundColor = primaryContainer,
+            iconColor = onPrimaryContainer,
+            icon = item.defaultIcon,
+        )
+        AsyncImage(
+            placeholder = placeholder,
+            fallback = placeholder,
+            model = item.image(ImageType.THUMB)?.url,
+            contentDescription = item.displayName,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 

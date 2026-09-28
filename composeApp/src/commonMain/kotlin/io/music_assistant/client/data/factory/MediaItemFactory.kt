@@ -10,7 +10,9 @@ import io.music_assistant.client.data.model.client.items.Album
 import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
+import io.music_assistant.client.data.model.client.items.AudiobookCollection
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
 import io.music_assistant.client.data.model.client.items.PodcastEpisode
@@ -186,6 +188,19 @@ class MediaItemFactory(
                 version = version,
                 source = server,
             )
+
+            MediaType.COLLECTION -> when (MediaCollection.itemMediaTypeOf(itemId)) {
+                MediaType.AUDIOBOOK -> AudiobookCollection(
+                    itemId = itemId,
+                    provider = provider,
+                    name = name,
+                    sortName = sortName,
+                    uri = uri,
+                    items = items?.mapNotNull { create(it) as? Audiobook }.orEmpty(),
+                )
+
+                else -> null
+            }
 
             MediaType.GENRE -> Genre(
                 itemId = itemId,

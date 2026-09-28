@@ -101,6 +101,7 @@ internal class FakeMediaItemStore {
             MediaType.AUDIOBOOK -> Unit
             MediaType.PODCAST -> Unit
             MediaType.PODCAST_EPISODE -> Unit
+            MediaType.COLLECTION -> Unit
             MediaType.GENRE -> Unit
             MediaType.FOLDER -> Unit
             MediaType.FLOW_STREAM -> Unit

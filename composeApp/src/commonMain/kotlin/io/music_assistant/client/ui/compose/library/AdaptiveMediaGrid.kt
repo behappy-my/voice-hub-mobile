@@ -26,6 +26,7 @@ import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.Playlist
 import io.music_assistant.client.data.model.client.items.Podcast
 import io.music_assistant.client.data.model.client.items.PodcastEpisode
@@ -37,6 +38,7 @@ import io.music_assistant.client.settings.ViewMode
 import io.music_assistant.client.ui.compose.common.items.AlbumWithMenu
 import io.music_assistant.client.ui.compose.common.items.ArtistWithMenu
 import io.music_assistant.client.ui.compose.common.items.AudiobookWithMenu
+import io.music_assistant.client.ui.compose.common.items.CollectionWithMenu
 import io.music_assistant.client.ui.compose.common.items.FolderCell
 import io.music_assistant.client.ui.compose.common.items.GenreWithMenu
 import io.music_assistant.client.ui.compose.common.items.LibraryActions
@@ -191,6 +193,14 @@ fun AdaptiveMediaGrid(
                     playlistActions = playlistActions,
                     libraryActions = libraryActions,
                     providerIconFetcher = null,
+                )
+
+                is MediaCollection -> CollectionWithMenu(
+                    item = item,
+                    viewMode = viewMode,
+                    onNavigateClick = onNavigateClick,
+                    onPlayOption = onPlayClick,
+                    libraryActions = libraryActions,
                 )
 
                 is RecommendationFolder -> FolderCell(

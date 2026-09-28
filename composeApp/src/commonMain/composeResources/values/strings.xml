@@ -167,6 +167,7 @@
   <string name="home_shortcuts">Shortcuts</string>
   <string name="item_error">Error loading item</string>
   <string name="item_no_data">No data available</string>
+  <string name="item_subtitle_collection">Collection</string>
   <string name="item_subtitle_genre">Genre</string>
   <string name="item_subtitle_playlist">Playlist</string>
   <string name="item_subtitle_playlist_dynamic">Dynamic playlist</string>
