@@ -487,6 +487,7 @@ data class Request @OptIn(ExperimentalUuidApi::class) constructor(
             orderBy: String? = null,
             providers: List<String>? = null,
             genres: List<Int>? = null,
+            collapseCollections: Boolean = false,
         ) = Request(
             command = APICommands.MUSIC_AUDIOBOOKS_LIBRARY_ITEMS,
             args = buildJsonObject {
@@ -496,6 +497,7 @@ data class Request @OptIn(ExperimentalUuidApi::class) constructor(
                 put("offset", JsonPrimitive(offset))
                 orderBy?.let { put("order_by", JsonPrimitive(it)) }
                 putListFilters(providers, genres)
+                put("collapse_collections", JsonPrimitive(collapseCollections))
             },
         )
     }

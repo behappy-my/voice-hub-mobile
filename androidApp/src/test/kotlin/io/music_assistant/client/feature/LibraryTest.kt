@@ -18,6 +18,7 @@ import io.music_assistant.client.support.pages.clickLibrary
 import io.music_assistant.client.support.pages.enableFilter
 import io.music_assistant.client.support.rules.createTestRuleChain
 import musicassistantclient.composeapp.generated.resources.Res
+import musicassistantclient.composeapp.generated.resources.filter_collapse_collections
 import musicassistantclient.composeapp.generated.resources.filter_favorites
 import musicassistantclient.composeapp.generated.resources.nav_home
 import musicassistantclient.composeapp.generated.resources.nav_library
@@ -165,6 +166,30 @@ class LibraryTest {
             }
             .assertMediaNotDisplayed(album1)
             .assertMediaDisplayed(album2)
+    }
+
+    @Test
+    fun `can collapse audiobooks into collections`() {
+        val book1 = ServerMediaItemFixtures.audiobook(name = "Mort")
+        val book2 = ServerMediaItemFixtures.audiobook(name = "Guards! Guards!")
+        val standalone = ServerMediaItemFixtures.audiobook(name = "Good Omens")
+        serviceClient.addItems(book1, book2, standalone)
+        serviceClient.addToLibrary(book1, book2, standalone)
+        val collection =
+            ServerMediaItemFixtures.audiobookCollection("Discworld", listOf(book1, book2))
+        serviceClient.addCollection(collection)
+
+        launchLoggedInApp(composeTestRule, serviceClient)
+            .clickLibrary()
+            .clickAudiobooks()
+            .assertMediaDisplayed(book1)
+            .enableFilter {
+                it.enableSwitch(Res.string.filter_collapse_collections.get())
+            }
+            .assertMediaDisplayed(collection)
+            .assertMediaNotDisplayed(book1)
+            .assertMediaNotDisplayed(book2)
+            .assertMediaDisplayed(standalone)
     }
 
     @Test

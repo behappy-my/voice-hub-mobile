@@ -13,6 +13,7 @@ import io.music_assistant.client.data.model.client.SortConfig
 import io.music_assistant.client.data.model.client.SortOption
 import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Genre
+import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.server.ServerProviderInstance
 import io.music_assistant.client.data.repository.MediaItemChange
 import io.music_assistant.client.data.repository.MediaItemRepository
@@ -97,8 +98,16 @@ class LibraryListViewModel(
                     // position (matches the "page refresh" semantics for creation).
                     is MediaItemChange.Added ->
                         if (change.item.mediaType == mediaType) loadFirstPage()
-                    // Cheap in-place removal; ordering of the rest is unaffected.
-                    is MediaItemChange.Deleted -> removeItem(change.item)
+                    // Cheap in-place removal; ordering of the rest is unaffected. A collapsed
+                    // member is not a row here, so only a refetch can drop it from its collection.
+                    is MediaItemChange.Deleted ->
+                        if (change.item.mediaType == mediaType &&
+                            _state.value.filters.collapseCollections
+                        ) {
+                            loadFirstPage()
+                        } else {
+                            removeItem(change.item)
+                        }
                 }
             }
         }
@@ -331,6 +340,7 @@ class LibraryListViewModel(
                 favorite = favorite,
                 providers = providers,
                 genres = genres,
+                collapseCollections = filters.collapseCollections,
             )
 
             MediaType.PODCAST -> Request.Podcast.listLibrary(
@@ -421,7 +431,10 @@ class LibraryListViewModel(
             val result = mediaItemRepository.fetchMediaItems(request)
 
             result.getOrNull()
-                ?.filter { it.mediaType == mediaType }
+                // A collapsed collection stands in for its members, so it belongs here too.
+                ?.filter {
+                    it.mediaType == mediaType || (it as? MediaCollection)?.itemMediaType == mediaType
+                }
                 ?.let { items ->
                     updateStateWithData(
                         items = items,

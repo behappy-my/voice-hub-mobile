@@ -131,6 +131,22 @@ object ServerMediaItemFixtures {
         )
     }
 
+    fun audiobookCollection(
+        name: String,
+        items: List<ServerMediaItem>,
+    ): ServerMediaItem {
+        val itemId = "${MediaType.AUDIOBOOK.serverValue}___$name"
+        return ServerMediaItem(
+            itemId = itemId,
+            provider = ServerMediaItem.LIBRARY_PROVIDER,
+            name = name,
+            mediaType = MediaType.COLLECTION.serverValue,
+            providerMappings = emptyList(),
+            uri = "library://collection/$itemId",
+            items = items,
+        )
+    }
+
     fun podcast(
         itemId: String = uniqueIdGenerator.nextInt().toString(),
         name: String = "Podcast $itemId",

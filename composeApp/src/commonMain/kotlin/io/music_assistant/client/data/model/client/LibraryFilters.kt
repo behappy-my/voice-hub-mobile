@@ -20,6 +20,7 @@ import kotlinx.serialization.Serializable
 data class LibraryFilters(
     val favorite: Boolean = false,
     val albumArtistsOnly: Boolean = false,
+    val collapseCollections: Boolean = false,
     val albumTypes: List<AlbumType> = emptyList(),
     val hideEmpty: GenreEmptyFilter = GenreEmptyFilter.DEFAULT,
     val genreMediaType: MediaType? = null,

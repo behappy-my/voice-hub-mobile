@@ -59,6 +59,7 @@ class FakeServiceClient : ServiceClient {
     private val queues = mutableListOf<ServerQueue>()
     private val queueItems = mutableMapOf<String, List<ServerQueueItem>>()
     private val mediaItemStore = FakeMediaItemStore()
+    private val collections = mutableListOf<ServerMediaItem>()
     private val shortcuts = mutableListOf<String>()
     private val providers = mutableListOf<ServerProviderInstance>()
 
@@ -302,10 +303,15 @@ class FakeServiceClient : ServiceClient {
             }
 
             APICommands.MUSIC_AUDIOBOOKS_LIBRARY_ITEMS -> {
+                val books = filterLibrary(request, MediaType.AUDIOBOOK)
                 Result.success(
                     answer(
                         request = request,
-                        result = filterLibrary(request, MediaType.AUDIOBOOK).enrichLibraryItems(),
+                        result = if (request.getArgOrNull("collapse_collections") == "true") {
+                            collapseCollections(books)
+                        } else {
+                            books.enrichLibraryItems()
+                        },
                     ),
                 )
             }
@@ -725,6 +731,10 @@ class FakeServiceClient : ServiceClient {
         this.players.addAll(players)
     }
 
+    fun addCollection(collection: ServerMediaItem) {
+        collections.add(collection)
+    }
+
     fun addShortcut(item: ServerMediaItem) {
         shortcuts.add(item.uri!!)
     }
@@ -765,6 +775,18 @@ class FakeServiceClient : ServiceClient {
         val itemId = request.getArg("item_id")
         val provider = request.getArg("provider_instance_id_or_domain")
         return mediaItemStore.getItem(itemId, provider)
+    }
+
+    // Mirrors the server's collapse_collections: a registered collection replaces its members,
+    // which are then no longer returned individually.
+    private fun collapseCollections(books: List<ServerMediaItem>): List<ServerMediaItem> {
+        if (collections.isEmpty()) return books.enrichLibraryItems()
+        val memberIds = collections.flatMap { collection ->
+            collection.items.orEmpty().map { it.itemId }
+        }.toSet()
+        // Members are matched before enrichment, which re-keys an item to its library id.
+        val standalone = books.filterNot { it.itemId in memberIds }
+        return collections + standalone.enrichLibraryItems()
     }
 
     private fun filterLibrary(

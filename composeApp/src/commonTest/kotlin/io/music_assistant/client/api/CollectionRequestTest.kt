@@ -18,4 +18,16 @@ class CollectionRequestTest {
         assertEquals(JsonPrimitive("audiobook___Discworld"), request.args?.get("item_id"))
         assertEquals(setOf("item_id"), request.args?.keys)
     }
+
+    @Test
+    fun `audiobook library listing carries the collapse flag`() {
+        assertEquals(
+            JsonPrimitive(true),
+            Request.Audiobook.listLibrary(collapseCollections = true).args?.get("collapse_collections"),
+        )
+        assertEquals(
+            JsonPrimitive(false),
+            Request.Audiobook.listLibrary().args?.get("collapse_collections"),
+        )
+    }
 }

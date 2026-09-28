@@ -28,6 +28,7 @@ import io.music_assistant.client.ui.compose.common.SettingsSheet.SwitchRow
 import musicassistantclient.composeapp.generated.resources.Res
 import musicassistantclient.composeapp.generated.resources.filter_album_artists_only
 import musicassistantclient.composeapp.generated.resources.filter_album_types
+import musicassistantclient.composeapp.generated.resources.filter_collapse_collections
 import musicassistantclient.composeapp.generated.resources.filter_favorites
 import musicassistantclient.composeapp.generated.resources.filter_genres
 import musicassistantclient.composeapp.generated.resources.filter_providers
@@ -142,6 +143,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.typeSpecific(
             val w = workingProvider()
             SwitchRow(Res.string.filter_album_artists_only, w.albumArtistsOnly) {
                 onChange(w.copy(albumArtistsOnly = it))
+            }
+        }
+
+        MediaType.AUDIOBOOK -> item {
+            val w = workingProvider()
+            SwitchRow(Res.string.filter_collapse_collections, w.collapseCollections) {
+                onChange(w.copy(collapseCollections = it))
             }
         }
 
