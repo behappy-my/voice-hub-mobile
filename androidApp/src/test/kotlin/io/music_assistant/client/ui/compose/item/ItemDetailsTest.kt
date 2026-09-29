@@ -21,7 +21,9 @@ import io.music_assistant.client.ui.compose.common.ExtractedColors
 import io.music_assistant.client.ui.compose.common.ExtractedColorsSource
 import io.music_assistant.client.ui.compose.support.inScrollable
 import musicassistantclient.composeapp.generated.resources.Res
+import musicassistantclient.composeapp.generated.resources.action_favorite
 import musicassistantclient.composeapp.generated.resources.action_go_to_artist
+import musicassistantclient.composeapp.generated.resources.action_remove_from_library
 import musicassistantclient.composeapp.generated.resources.cd_more
 import org.junit.Rule
 import org.junit.Test
@@ -161,5 +163,27 @@ class ItemDetailsTest {
             onNode(hasContentDescription(books[0].displayName)).assertIsDisplayed()
             onNode(hasContentDescription(books[1].displayName)).assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun `does not offer library actions for a collection`() {
+        val collection = AppMediaItemFixtures.audiobookCollection(
+            items = listOf(AppMediaItemFixtures.audiobook()),
+        )
+
+        composeTestRule.setInspectableContent {
+            ItemDetails(
+                state = ItemDetailsViewModel.State(
+                    itemState = DataState.Data(collection),
+                    albumsState = DataState.NoData(),
+                    playableItemsState = DataState.NoData(),
+                ),
+                fetchColors = NoColors,
+            )
+        }
+
+        composeTestRule.onNodeWithContentDescription(Res.string.cd_more.get()).performClick()
+        composeTestRule.onNodeWithText(Res.string.action_remove_from_library.get()).assertDoesNotExist()
+        composeTestRule.onNodeWithText(Res.string.action_favorite.get()).assertDoesNotExist()
     }
 }
