@@ -293,10 +293,7 @@ fun ItemDetails(
     }
 }
 
-/**
- * The media type this tab's list shows, driving both its label and its view-mode toggle. A
- * collection's is only known from the item, since one tab serves every collected type.
- */
+/** The media type the tab lists; for a collection it comes from the item. */
 private fun ItemDetailsTab.viewMediaTypeFor(item: AppMediaItem): MediaType? = when (this) {
     ItemDetailsTab.COLLECTION_ITEMS -> (item as? MediaCollection)?.itemMediaType
     else -> viewMediaType
