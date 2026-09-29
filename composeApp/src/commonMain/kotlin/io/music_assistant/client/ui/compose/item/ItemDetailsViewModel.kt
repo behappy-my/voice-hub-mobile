@@ -16,6 +16,7 @@ import io.music_assistant.client.data.model.client.items.Album
 import io.music_assistant.client.data.model.client.items.AppMediaItem
 import io.music_assistant.client.data.model.client.items.Artist
 import io.music_assistant.client.data.model.client.items.Audiobook
+import io.music_assistant.client.data.model.client.items.AudiobookCollection
 import io.music_assistant.client.data.model.client.items.Genre
 import io.music_assistant.client.data.model.client.items.MediaCollection
 import io.music_assistant.client.data.model.client.items.PlayableItem
@@ -502,6 +503,14 @@ class ItemDetailsViewModel(
     }
 
     private fun updateSubItemIfNeeded(changed: AppMediaItem) {
+        // A collection's members live in the item itself, not in a sub-list.
+        val collection = (_state.value.itemState as? DataState.Data)?.data as? AudiobookCollection
+        if (collection != null && changed is Audiobook) {
+            val items = collection.items.map { if (it.itemId == changed.itemId) changed else it }
+            _state.update { it.copy(itemState = DataState.Data(collection.copy(items = items))) }
+            return
+        }
+
         when (changed) {
             is Artist -> {
                 val artistsData = (_state.value.artistsState as? DataState.Data)?.data ?: return
