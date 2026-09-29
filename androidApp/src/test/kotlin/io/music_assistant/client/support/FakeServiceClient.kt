@@ -316,6 +316,21 @@ class FakeServiceClient : ServiceClient {
                 )
             }
 
+            APICommands.MUSIC_AUDIOBOOKS_GET_COLLECTION -> {
+                val collection = collections.first { it.itemId == request.getArgOrNull("item_id") }
+                Result.success(
+                    answer(
+                        request = request,
+                        result = collection.copy(items = collection.items?.enrichLibraryItems()),
+                    ),
+                )
+            }
+
+            // The server only writes the playlog and emits no update event.
+            APICommands.MUSIC_MARK_PLAYED,
+            APICommands.MUSIC_MARK_UNPLAYED,
+                -> Result.success(Answer(JsonObject(emptyMap())))
+
             APICommands.MUSIC_PODCASTS_LIBRARY_ITEMS -> {
                 Result.success(
                     answer(

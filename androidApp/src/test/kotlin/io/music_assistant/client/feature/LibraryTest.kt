@@ -11,13 +11,17 @@ import io.music_assistant.client.support.launchLoggedInApp
 import io.music_assistant.client.support.pages.ItemPage
 import io.music_assistant.client.support.pages.LibraryPage
 import io.music_assistant.client.support.pages.assertMediaDisplayed
+import io.music_assistant.client.support.pages.assertItemOption
 import io.music_assistant.client.support.pages.assertMediaNotDisplayed
 import io.music_assistant.client.support.pages.assertNoItems
 import io.music_assistant.client.support.pages.clickHome
+import io.music_assistant.client.support.pages.clickItemOption
 import io.music_assistant.client.support.pages.clickLibrary
 import io.music_assistant.client.support.pages.enableFilter
 import io.music_assistant.client.support.rules.createTestRuleChain
 import musicassistantclient.composeapp.generated.resources.Res
+import musicassistantclient.composeapp.generated.resources.action_mark_played
+import musicassistantclient.composeapp.generated.resources.action_mark_unplayed
 import musicassistantclient.composeapp.generated.resources.filter_collapse_collections
 import musicassistantclient.composeapp.generated.resources.filter_favorites
 import musicassistantclient.composeapp.generated.resources.nav_home
@@ -190,6 +194,25 @@ class LibraryTest {
             .assertMediaNotDisplayed(book1)
             .assertMediaNotDisplayed(book2)
             .assertMediaDisplayed(standalone)
+    }
+
+    @Test
+    fun `marking a collection member played updates the collection`() {
+        val book = ServerMediaItemFixtures.audiobook(name = "Mort")
+        serviceClient.addItems(book)
+        serviceClient.addToLibrary(book)
+        val collection = ServerMediaItemFixtures.audiobookCollection("Discworld", listOf(book))
+        serviceClient.addCollection(collection)
+
+        launchLoggedInApp(composeTestRule, serviceClient)
+            .clickLibrary()
+            .clickAudiobooks()
+            .enableFilter {
+                it.enableSwitch(Res.string.filter_collapse_collections.get())
+            }
+            .clickOnMedia(collection)
+            .clickItemOption(book, Res.string.action_mark_played.get())
+            .assertItemOption(book, Res.string.action_mark_unplayed.get())
     }
 
     @Test

@@ -59,6 +59,12 @@ fun <T : ComposePage> T.clickItemOption(serverMediaItem: ServerMediaItem, action
     return this
 }
 
+fun <T : ComposePage> T.assertItemOption(serverMediaItem: ServerMediaItem, action: String): T {
+    composeTestRule.onNode(mediaItemMatcher(serverMediaItem)).performTouchInput { longClick() }
+    composeTestRule.onNodeWithText(action).assertIsDisplayed()
+    return this
+}
+
 /** Long-clicks [serverMediaItem], picks the [action] navigation entry, and lands on [target]. */
 fun ComposePage.clickItemNavigationOption(
     serverMediaItem: ServerMediaItem,
