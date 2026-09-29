@@ -16,9 +16,9 @@ import kotlin.test.assertTrue
 
 /**
  * A `library_items` request with `collapse_collections` returns a mixed list of
- * audiobooks and synthesized collections. Before collections were modelled the
- * factory dropped them, which also lost every book inside one, since the server
- * stops returning collapsed books individually.
+ * audiobooks and synthesized collections. An unmapped collection is dropped, and
+ * every book inside it with it, since the server stops returning collapsed books
+ * individually.
  */
 class MediaCollectionMappingTest {
     private val factory = MediaItemFactory(StubServiceClient())
