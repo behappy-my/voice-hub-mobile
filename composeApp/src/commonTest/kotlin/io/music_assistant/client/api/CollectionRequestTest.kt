@@ -20,7 +20,7 @@ class CollectionRequestTest {
     }
 
     @Test
-    fun `audiobook library listing carries the collapse flag`() {
+    fun listLibraryCarriesCollapseFlag() {
         assertEquals(
             JsonPrimitive(true),
             Request.Audiobook.listLibrary(collapseCollections = true).args?.get("collapse_collections"),
