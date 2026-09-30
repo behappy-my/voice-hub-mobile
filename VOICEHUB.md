@@ -12,6 +12,20 @@ and log in again. Open Library → 有声书 for categories and collections.
 The **列表** button preserves the original flat library.
 Use only one app's local player at a time during comparison.
 
+Version `0.14.0-voicehub.2` (code 16) uses the approved Voice Hub artwork:
+an open book, sound ribbons and a play symbol on midnight blue. The original
+generated PNG is retained unchanged in `drawable-nodpi/voicehub_icon_art.png`;
+Android applies an 18 dp inset inside the 108 dp adaptive icon layer for circular
+and squircle masks. Android 9+ supports adaptive icons, so obsolete density-specific
+Music Assistant launcher bitmaps are removed. A matching alpha-only vector serves
+Android 13 themed icons and notification small icons. The Play Store artwork is
+also updated. Generation used the built-in image tool with the direction:
+"modern high-contrast open book and sound-wave emblem, cyan-to-violet gradient,
+central play symbol, midnight background, no text".
+
+This update keeps the same application ID and private release signing certificate;
+install it directly over `0.14.0-voicehub.1` to retain login and player settings.
+
 The bookshelf consumes authenticated `voicehub/spoken/shelves` on the customized
 MA server. It uses native navigation, artwork proxy, detail screens and player
 commands. It does not mirror the web UI in a WebView or download the catalog's
