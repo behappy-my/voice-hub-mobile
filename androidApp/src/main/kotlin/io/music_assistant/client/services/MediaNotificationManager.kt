@@ -41,7 +41,7 @@ class MediaNotificationManager(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_voicehub_monochrome)
             .setLargeIcon(bitmap)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setStyle(
