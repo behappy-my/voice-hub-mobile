@@ -22,6 +22,9 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -130,6 +133,11 @@ internal class ConnectionSupervisor(
     ): DropReason {
         val transport = try {
             connector.connect(endpoint, trustStore.clientId)
+        } catch (e: TimeoutCancellationException) {
+            // An attempt-local timeout is a recoverable connect failure. Genuine
+            // parent cancellation must still terminate the supervisor immediately.
+            currentCoroutineContext().ensureActive()
+            return DropReason.ConnectFailed(e)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {

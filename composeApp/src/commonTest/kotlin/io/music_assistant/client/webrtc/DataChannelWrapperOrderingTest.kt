@@ -4,6 +4,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.test.runTest
@@ -63,6 +66,23 @@ class DataChannelWrapperOrderingTest {
             )
             wrapper.close()
             coroutineContext[Job]?.cancelChildren()
+        }
+    }
+
+    @Test
+    fun closeFromCancelledConnectionStillPublishesClosed() = runTest {
+        withContext(Dispatchers.Default) {
+            val source = ScriptedReceiveSource()
+            val wrapper = wrapper(source)
+            val closing = launch {
+                currentCoroutineContext().cancel()
+                wrapper.close()
+            }
+            closing.join()
+            assertEquals(DataChannelState.Closed, wrapper.state.value)
+            // Second close is safe, even after the cancelled caller completed.
+            wrapper.close()
+            source.script.close()
         }
     }
 

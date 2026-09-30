@@ -64,7 +64,10 @@ class LibraryPage(composeTestRule: ComposeTestRule) :
     }
 
     fun clickAudiobooks(): LibraryListPage {
-        return clickType(Res.string.media_type_audiobooks.get())
+        // The fork defaults to the bookshelf. Existing generic-list tests opt in explicitly.
+        composeTestRule.onNodeWithText(Res.string.media_type_audiobooks.get()).performClick()
+        composeTestRule.onNodeWithText("列表").performClick()
+        return LibraryListPage(Res.string.media_type_audiobooks.get(), composeTestRule).assertOnPage()
     }
 
     fun clickPodcasts(): LibraryListPage {

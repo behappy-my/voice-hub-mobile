@@ -16,4 +16,5 @@
   <string name="sleep_timer_hours">%1$d小時</string>
   <string name="sleep_timer_minutes">%1$d分鐘</string>
   <string name="sleep_timer_stops_in">%1$s停</string>
+  <string name="media_type_audiobooks">有声书</string>
 </resources>
