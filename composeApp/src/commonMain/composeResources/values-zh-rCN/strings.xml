@@ -160,4 +160,5 @@
   <string name="player_power_off">关机</string>
   <string name="player_power_on">开机</string>
   <string name="player_powered_off">已关机</string>
+  <string name="media_type_audiobooks">有声书</string>
 </resources>

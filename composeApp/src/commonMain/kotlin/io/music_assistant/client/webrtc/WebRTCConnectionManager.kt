@@ -583,7 +583,7 @@ class WebRTCConnectionManager(
     /**
      * Cleanup resources.
      */
-    private suspend fun cleanup() {
+    private suspend fun cleanup() = kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
         signalingMessageListenerJob?.cancel()
         signalingMessageListenerJob = null
 

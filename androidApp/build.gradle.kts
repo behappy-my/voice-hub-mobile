@@ -11,11 +11,11 @@ android {
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "io.music_assistant.client"
+        applicationId = "io.music_assistant.client.voicehub"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 15
-        versionName = "0.14.0"
+        versionName = "0.14.0-voicehub.1"
     }
     packaging {
         resources {
@@ -24,10 +24,17 @@ android {
     }
     signingConfigs {
         create("selfSigned") {
-            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            // Private persistent certificate for this fork, never the public debug key.
+            val props = Properties().apply {
+                val path = System.getenv("VOICEHUB_SIGNING_PROPERTIES")
+                    ?: System.getProperty("user.home") + "/.config/voicehub-mobile/signing.properties"
+                val privateFile = file(path)
+                if (privateFile.exists()) load(privateFile.inputStream())
+            }
+            storeFile = props["storeFile"]?.let { file(it as String) }
+            storePassword = props["storePassword"] as? String
+            keyAlias = props["keyAlias"] as? String
+            keyPassword = props["keyPassword"] as? String
         }
 
         create("release") {

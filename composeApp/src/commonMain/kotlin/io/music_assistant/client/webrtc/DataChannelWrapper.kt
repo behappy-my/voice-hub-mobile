@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 
 /**
  * WebRTC data channel wrapper backed by `io.ktor:ktor-client-webrtc`. Text and
@@ -166,8 +168,8 @@ class DataChannelWrapper internal constructor(
         }
     }
 
-    suspend fun close() {
-        if (closed) return
+    suspend fun close() = withContext(NonCancellable) {
+        if (closed) return@withContext
         closed = true
         logger.i { "Closing data channel $label" }
         // Close the outgoing Channel, then give the drain a bounded chance to

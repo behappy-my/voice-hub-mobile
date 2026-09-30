@@ -48,6 +48,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import java.util.concurrent.atomic.AtomicBoolean
 
 class FakeServiceClient : ServiceClient {
+    var spokenShelvesHandler: ((Request) -> io.music_assistant.client.ui.compose.library.SpokenPage)? = null
     private var legacyVersion: LegacyVersion? = null
     private val requestErrors = AtomicBoolean(false)
     private var connectionError: Exception? = null
@@ -81,6 +82,11 @@ class FakeServiceClient : ServiceClient {
         }
 
         return when (request.command) {
+            "voicehub/spoken/shelves" -> {
+                val handler = spokenShelvesHandler
+                if (handler == null) Result.failure(IllegalStateException("Optional bookshelf unavailable"))
+                else Result.success(answer(request, handler(request)))
+            }
             APICommands.PROVIDERS -> {
                 Result.success(
                     answer(

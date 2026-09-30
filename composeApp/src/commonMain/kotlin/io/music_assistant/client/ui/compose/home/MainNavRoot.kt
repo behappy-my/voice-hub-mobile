@@ -25,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -76,6 +77,8 @@ import io.music_assistant.client.ui.compose.library.BrowseScreen
 import io.music_assistant.client.ui.compose.library.BrowseViewModel
 import io.music_assistant.client.ui.compose.library.LibraryCategoriesViewModel
 import io.music_assistant.client.ui.compose.library.LibraryCategory
+import io.music_assistant.client.ui.compose.library.SpokenShelvesScreen
+import io.music_assistant.client.ui.compose.library.SpokenShelvesViewModel
 import io.music_assistant.client.ui.compose.library.LibraryListScreen
 import io.music_assistant.client.ui.compose.library.LibraryListViewModel
 import io.music_assistant.client.ui.compose.library.LibraryScreen
@@ -439,6 +442,19 @@ private fun mainNavEntryProvider(
         }
 
         entry<MainNav.LibraryList> {
+            var originalList by rememberSaveable { mutableStateOf(false) }
+            if (it.mediaType == MediaType.AUDIOBOOK && !originalList) {
+                SpokenShelvesScreen(
+                    viewModel = koinViewModel<SpokenShelvesViewModel>(),
+                    contentPadding = contentPadding,
+                    onBack = { multiBackStack.removeLastOrNull() },
+                    onOriginalList = { originalList = true },
+                    onOpen = { id, mediaType, provider ->
+                        multiBackStack.add(MainNav.ItemDetails(itemId = id, mediaType = mediaType, providerId = provider))
+                    },
+                )
+                return@entry
+            }
             val libraryListViewModel = koinViewModel<LibraryListViewModel> {
                 parametersOf(it.mediaType)
             }
