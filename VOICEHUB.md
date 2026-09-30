@@ -54,3 +54,8 @@ Android rendering tests cover category → edition group → native detail ID an
 an explicit original-list escape on an unsupported server.
 Connection regression tests cover repeated attempt timeouts and closure from an
 already cancelled coroutine; upstream host tests are retained.
+
+Local validation (2026-09-30): 200 Sendspin, 581 shared and 130 Android
+unit/rendering tests pass; lint reports zero errors and seven existing
+compatibility/network/packaging warnings. See docs/voicehub-android-validation.json.
+No tests play audio through the physical phone or car.

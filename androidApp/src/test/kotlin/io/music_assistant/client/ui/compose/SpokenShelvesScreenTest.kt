@@ -1,7 +1,7 @@
 package io.music_assistant.client.ui.compose
 
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -38,7 +38,7 @@ class SpokenShelvesScreenTest {
         var opened: Triple<String, MediaType, String>? = null
         val vm = SpokenShelvesViewModel(api)
         compose.setContent {
-            MaterialTheme {
+            Box {
                 SpokenShelvesScreen(vm, PaddingValues(0.dp), {}, {},
                     { id, mediaType, provider -> opened = Triple(id, mediaType, provider) })
             }
@@ -54,7 +54,7 @@ class SpokenShelvesScreenTest {
     fun unsupportedServerKeepsExplicitOriginalListEscape() {
         var originalList = false
         val vm = SpokenShelvesViewModel(FakeServiceClient())
-        compose.setContent { MaterialTheme {
+        compose.setContent { Box {
             SpokenShelvesScreen(vm, PaddingValues(0.dp), {}, { originalList = true }, { _, _, _ -> })
         } }
         compose.onNodeWithText("暂时无法读取书架，请重试，或使用原始列表。").assertIsDisplayed()
