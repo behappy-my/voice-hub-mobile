@@ -53,36 +53,30 @@ class MainMediaPlaybackService : MediaBrowserServiceCompat() {
     // Audio routing callback - pauses playback when external audio output disconnects
     // (Android Auto, Bluetooth headphones, wired headphones, USB audio, etc.)
     private val audioDeviceCallback = object : AudioDeviceCallback() {
-        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
-            val hasExternalOutputRemoved = removedDevices?.any { device ->
-                device.isSink && when (device.type) {
-                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,      // Bluetooth audio (includes Android Auto)
-                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO,       // Bluetooth phone audio
-                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,    // 3.5mm headphones
-                    AudioDeviceInfo.TYPE_WIRED_HEADSET,       // 3.5mm headset
-                    AudioDeviceInfo.TYPE_USB_DEVICE,          // USB audio
-                    AudioDeviceInfo.TYPE_USB_HEADSET,         // USB headset
-                    AudioDeviceInfo.TYPE_USB_ACCESSORY,
-                    -> true
-
-                    else -> false
-                }
-            } == true
-
-            if (hasExternalOutputRemoved) {
-                val names = removedDevices.filter { it.isSink }.map { it.productName }
-                logger.w { "External audio output(s) disconnected: $names" }
-
-                // Debounce: cancel pending job and reschedule, so multiple simultaneous
-                // device removals (e.g., BT A2DP + SCO at once) only trigger ONE pause
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+            if (addedDevices.orEmpty().any { it.isSink && isExternalMediaRoute(it.type) }) {
                 audioRoutingPauseJob?.cancel()
-                audioRoutingPauseJob = scope.launch {
-                    delay(300)
+            }
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            val removed = removedDevices.orEmpty().filter { it.isSink }.map { it.type }.toSet()
+            if (removed.none(::isExternalMediaRoute)) {
+                logger.i { "Ignoring non-media route removal: types=$removed" }
+                return
+            }
+            val playerId = dataSource.localPlayer.value?.player?.id ?: return
+            audioRoutingPauseJob?.cancel()
+            audioRoutingPauseJob = scope.launch {
+                delay(300)
+                val remaining = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                    .map { it.type }.toSet()
+                val pause = shouldPauseAfterRouteRemoval(removed, remaining)
+                logger.i { "Media route removal: removed=$removed remaining=$remaining pause=$pause" }
+                if (pause) {
                     dataSource.localPlayer.value
-                        ?.takeIf { it.player.isPlaying }
-                        ?.let { localPlayer ->
-                            dataSource.playerAction(localPlayer, PlayerAction.Pause)
-                        }
+                        ?.takeIf { it.player.id == playerId && it.player.isPlaying }
+                        ?.let { dataSource.playerAction(it, PlayerAction.Pause) }
                 }
             }
         }

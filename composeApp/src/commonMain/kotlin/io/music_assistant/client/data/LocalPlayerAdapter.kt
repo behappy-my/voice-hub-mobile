@@ -216,6 +216,7 @@ class LocalPlayerAdapter(
     }
 
     private suspend fun onPlayerEvent(event: PlayerEvent) {
+        log.i { "Local playback event: $event" }
         when (event) {
             is PlayerEvent.PlaybackStarted -> {
                 pausedByInterruption = false
@@ -231,8 +232,10 @@ class LocalPlayerAdapter(
                 }
 
                 StopCause.FocusLost -> {
-                    pausedByInterruption = localPlayerData.value?.player?.isPlaying == true
-                    pauseLocalIfPlaying()
+                    if (localPlayerData.value?.player?.isPlaying == true) {
+                        pauseLocalIfPlaying()
+                        pausedByInterruption = true
+                    }
                 }
 
                 StopCause.SinkFailed -> pauseLocalIfPlaying()
@@ -259,6 +262,12 @@ class LocalPlayerAdapter(
      */
     fun handleLocalCommand(data: PlayerData, action: PlayerAction) {
         val resolved = playerRequestFactory.resolve(data, resolveLocalToggle(data, action))
+        log.i { "Local command: action=$resolved player=${data.player.id} ready=${apiClient.isReadyForCommands.value}" }
+        when (resolved) {
+            PlayerAction.Play, PlayerAction.Pause, PlayerAction.Next, PlayerAction.Previous,
+            is PlayerAction.SeekTo, is PlayerAction.SeekBy -> pausedByInterruption = false
+            else -> Unit
+        }
         applyOptimisticUpdate(data, resolved)
         launch {
             val request = playerRequestFactory.buildRequest(data, resolved) ?: return@launch

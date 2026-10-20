@@ -389,8 +389,14 @@ class SharedMediaSessionManager(
 
     private fun createCallback(): MediaSessionCompat.Callback =
         object : MediaSessionCompat.Callback() {
-            override fun onPlay() = act(PlayerAction.Play)
-            override fun onPause() = act(PlayerAction.Pause)
+            override fun onPlay() {
+                Logger.withTag("MediaSession").i { "Transport callback: play" }
+                act(PlayerAction.Play)
+            }
+            override fun onPause() {
+                Logger.withTag("MediaSession").i { "Transport callback: pause" }
+                act(PlayerAction.Pause)
+            }
             override fun onSkipToNext() = act(PlayerAction.Next)
             override fun onSkipToPrevious() = act(PlayerAction.Previous)
 

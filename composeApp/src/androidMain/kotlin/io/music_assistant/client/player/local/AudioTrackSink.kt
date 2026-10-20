@@ -106,7 +106,7 @@ class AudioTrackSink(
         /** The head position wraps at 32 bits. */
         private val frames = MonotonicFrameCounter()
         private val head = SteppedHeadTracker(format.sampleRate)
-        private var interrupted = false
+        private val interruption = InterruptionRecovery()
 
         /** Set on the first interruption; the audio thread may be inside a blocking write at that moment. */
         @Volatile
@@ -120,14 +120,11 @@ class AudioTrackSink(
             when (change) {
                 AudioManager.AUDIOFOCUS_GAIN -> {
                     runCatching { track.setVolume(1f) }
-                    if (interrupted) {
-                        interrupted = false
-                        sinkEvents.tryEmit(SinkEvent.FocusRegained)
-                    }
+                    applyInterruption(interruption.focusGained(), "focus_gain")
                 }
 
-                AudioManager.AUDIOFOCUS_LOSS -> interrupt(resumable = false)
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> interrupt(resumable = true)
+                AudioManager.AUDIOFOCUS_LOSS -> applyInterruption(interruption.focusLost(false), "focus_loss")
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> applyInterruption(interruption.focusLost(true), "focus_transient")
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> runCatching { track.setVolume(DUCK_GAIN) }
             }
         }
@@ -139,18 +136,20 @@ class AudioTrackSink(
         // Headphones unplugged or Bluetooth gone: the output is no longer what the user hears.
         private val noisyReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) interrupt(resumable = false)
+                if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                    applyInterruption(interruption.outputDisconnected(), "audio_becoming_noisy")
+                }
             }
         }
 
         // Some Bluetooth and Android Auto routings deliver no focus loss on a call.
         private val modeListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             AudioManager.OnModeChangedListener { mode ->
-                if (mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION) {
-                    interrupt(
-                        resumable = true,
-                    )
-                }
+                logger.i { "Audio mode change: $mode" }
+                applyInterruption(
+                    interruption.callMode(mode != AudioManager.MODE_NORMAL),
+                    "mode_$mode",
+                )
             }
         } else {
             null
@@ -173,18 +172,24 @@ class AudioTrackSink(
             }
         }
 
-        private fun interrupt(resumable: Boolean) {
-            interrupted = resumable
-            dead = true
-            // A write blocked on a paused track never returns; stop() wakes it.
-            runCatching {
-                track.pause()
-                track.flush()
-                track.stop()
+        private fun applyInterruption(action: InterruptionRecovery.Action, reason: String) {
+            logger.i { "Audio interruption: reason=$reason action=$action" }
+            when (action) {
+                InterruptionRecovery.Action.NONE -> Unit
+                InterruptionRecovery.Action.RESUME -> sinkEvents.tryEmit(SinkEvent.FocusRegained)
+                InterruptionRecovery.Action.INTERRUPT -> {
+                    dead = true
+                    // Wake any blocked writer; the next server stream opens a fresh track.
+                    runCatching {
+                        track.pause()
+                        track.flush()
+                        track.stop()
+                    }
+                    frames.reset()
+                    head.reset()
+                    sinkEvents.tryEmit(SinkEvent.FocusLost)
+                }
             }
-            frames.reset()
-            head.reset()
-            sinkEvents.tryEmit(SinkEvent.FocusLost)
         }
 
         override fun write(pcm: ByteArray, offset: Int, length: Int): Int {
