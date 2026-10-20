@@ -147,7 +147,11 @@ class AudioTrackSink(
             AudioManager.OnModeChangedListener { mode ->
                 logger.i { "Audio mode change: $mode" }
                 applyInterruption(
-                    interruption.callMode(mode != AudioManager.MODE_NORMAL),
+                    when (mode) {
+                        AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION -> interruption.callMode(true)
+                        AudioManager.MODE_NORMAL -> interruption.callMode(false)
+                        else -> InterruptionRecovery.Action.NONE
+                    },
                     "mode_$mode",
                 )
             }

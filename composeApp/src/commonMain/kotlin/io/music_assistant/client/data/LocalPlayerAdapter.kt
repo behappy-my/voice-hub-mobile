@@ -471,6 +471,7 @@ class LocalPlayerAdapter(
 
     /** Full reset: drop the optimistic UI state and pending offline commands (logout, disable). */
     fun clearState() {
+        pausedByInterruption = false
         _localPlayerData.update { null }
         launch { commands.clear() }
     }

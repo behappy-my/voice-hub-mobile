@@ -75,7 +75,9 @@ class MainMediaPlaybackService : MediaBrowserServiceCompat() {
                 logger.i { "Media route removal: removed=$removed remaining=$remaining pause=$pause" }
                 if (pause) {
                     dataSource.localPlayer.value
-                        ?.takeIf { it.player.id == playerId && it.player.isPlaying }
+                        // Send Pause even when a call has already paused playback: this also
+                        // cancels the pending call-resume intent when the user leaves the car.
+                        ?.takeIf { it.player.id == playerId }
                         ?.let { dataSource.playerAction(it, PlayerAction.Pause) }
                 }
             }
