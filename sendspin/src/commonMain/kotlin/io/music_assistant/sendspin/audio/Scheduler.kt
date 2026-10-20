@@ -8,6 +8,7 @@ import io.music_assistant.sendspin.api.MonotonicClock
 import io.music_assistant.sendspin.api.SinkEvent
 import io.music_assistant.sendspin.api.SinkFormat
 import io.music_assistant.sendspin.api.SinkHandle
+import io.music_assistant.sendspin.api.SinkPosition
 import io.music_assistant.sendspin.clock.ClockSync
 import io.music_assistant.sendspin.wire.AudioChunk
 import kotlinx.coroutines.CancellationException
@@ -29,7 +30,9 @@ import kotlin.math.abs
  * corrected by inserting silence (early), trimming or dropping (late), or a
  * gentle resample inside the tolerance band. The sink's own buffer is the
  * write-ahead cushion: writes block at the hardware rate, which paces the loop.
- * Without feedback (iOS), scheduling is open loop: wait until due, drop when late.
+ * Without feedback (iOS), scheduling is open loop: wait until due, write even when
+ * late. The native queue holds far more than any stall, and the local player is never
+ * grouped, so a late drop would only cut audio that still plays in sequence.
  * A pass-through decoder (`outputCodec != PCM`, the sink decodes) forces open
  * loop too: the bytes are opaque, so they cannot be trimmed, padded or resampled.
  *
@@ -57,10 +60,16 @@ internal class Scheduler(
     private var lateDrops = 0L
     private var lateMicros = 0L
     private var insertedSilenceMicros = 0L
+    private var underruns = 0
+    private var correctionLogs = 0
+    private var lastWriteMicros = 0L
     private var clockWaitSinceMicros: Long? = null
 
     /** Lead of the chunk being written, for the first-audio report. */
     private var lastLeadMicros = 0L
+
+    /** The lead averaged over [LEAD_SMOOTHING_MICROS]; null at the start of a continuous run. */
+    private var smoothedLeadMicros: Double? = null
 
     suspend fun run(): Nothing = coroutineScope {
         try {
@@ -86,7 +95,7 @@ internal class Scheduler(
             decoder.reset()
             framesWritten = 0
             played = false // the next write is a new start: the app must be told again
-            corrector?.reset()
+            restartCorrection()
         }
         when (state.phase) {
             StreamPhase.Idle, StreamPhase.Ended -> {
@@ -135,12 +144,16 @@ internal class Scheduler(
         handle = opened
         format = pcmFormat
         corrector = if (pcmFormat.isPcm) DriftCorrector(pcmFormat.channels, pcmFormat.bitDepth / BITS_PER_BYTE) else null
+        restartCorrection()
         openGeneration = state.generation
         framesWritten = 0
         played = false
         lateDrops = 0
         lateMicros = 0
         insertedSilenceMicros = 0
+        underruns = 0
+        correctionLogs = 0
+        lastWriteMicros = 0L
         val generation = state.generation
         // The collector lives with this handle, not with the scheduler, and an event that
         // belongs to this stream must never end a later one.
@@ -169,6 +182,7 @@ internal class Scheduler(
     private suspend fun play(chunk: AudioChunk): Boolean {
         val out = handle ?: return false
         val fmt = format ?: return false
+        checkUnderruns(out)
         val target = clockSync.toLocalMicros(chunk.timestampMicros)?.plus(pipeline.userDelayMicros)
         lastLeadMicros = 0L
         if (target == null) {
@@ -190,23 +204,26 @@ internal class Scheduler(
         val lead = target - (clock.nowMicros() + queuedMicros + latency)
         lastLeadMicros = lead
 
-        if (lead < -HARD_TOLERANCE_MICROS) {
-            val late = -lead
-            lateDrops++
-            lateMicros += late
-            val pcm = decode(chunk) ?: return true
-            val blockMicros = if (opaque) 0L else framesToMicros((pcm.size / fmt.bytesPerFrame).toLong(), fmt)
-            if (late >= blockMicros) return true // whole chunk is in the past
-            val skip = microsToBytes(late, fmt)
-            return write(out, pcm, skip, pcm.size - skip)
-        }
         if (position == null) {
             // Open loop: no feedback, so the wall clock is the only reference.
             if (lead > SOFT_TOLERANCE_MICROS) {
                 waitOrWake(lead)
                 return false
             }
+            if (lead < -HARD_TOLERANCE_MICROS) logCorrection("late", lead, queuedMicros, position)
             return decodeAndWrite(out, chunk)
+        }
+        if (lead < -HARD_TOLERANCE_MICROS) {
+            val late = -lead
+            lateDrops++
+            lateMicros += late
+            logCorrection("late", lead, queuedMicros, position)
+            val pcm = decode(chunk) ?: return true
+            val blockMicros = framesToMicros((pcm.size / fmt.bytesPerFrame).toLong(), fmt)
+            if (late >= blockMicros) return true // whole chunk is in the past
+            val skip = microsToBytes(late, fmt)
+            restartCorrection() // the trim is a deliberate gap: no interpolation across it
+            return write(out, pcm, skip, pcm.size - skip)
         }
         if (lead > MAX_SILENCE_MICROS) {
             waitOrWake(lead - MAX_SILENCE_MICROS)
@@ -215,17 +232,43 @@ internal class Scheduler(
         val pcm = decode(chunk) ?: return true
         return when {
             lead > HARD_TOLERANCE_MICROS -> {
-                insertedSilenceMicros += lead
+                // The first write after an open or a flush is the alignment, not a correction.
+                if (played) {
+                    insertedSilenceMicros += lead
+                    logCorrection("early", lead, queuedMicros, position)
+                }
+                restartCorrection() // the silence is a deliberate gap: no interpolation across it
                 write(out, ByteArray(microsToBytes(lead, fmt))) && write(out, pcm)
             }
 
-            abs(lead) > SOFT_TOLERANCE_MICROS -> {
+            else -> {
+                // Inside the tolerance band too: the corrector carries the last frame of the previous
+                // block, so every block of a continuous run goes through it, even with nothing to correct.
                 val blockMicros = framesToMicros((pcm.size / fmt.bytesPerFrame).toLong(), fmt)
-                write(out, corrector?.correct(pcm, driftMicros = -lead, blockMicros = blockMicros) ?: pcm)
+                val drift = correctionMicros(lead, blockMicros)
+                write(out, corrector?.correct(pcm, driftMicros = drift, blockMicros = blockMicros) ?: pcm)
             }
-
-            else -> write(out, pcm)
         }
+    }
+
+    /**
+     * The share of [lead] to correct in this block. One lead reading is noisy by several ms (the head
+     * moves in mixer-period steps, the clock estimate jumps on each probe burst), while the drift to
+     * correct changes over seconds. So the decision uses the smoothed lead, and the correction is
+     * proportional to it: a full correction takes [CORRECTION_HORIZON_MICROS], at four smoothing time
+     * constants so that the loop settles without overshoot.
+     */
+    private fun correctionMicros(lead: Long, blockMicros: Long): Long {
+        val previous = smoothedLeadMicros ?: lead.toDouble()
+        val smoothed = previous + (lead - previous) * blockMicros / (LEAD_SMOOTHING_MICROS + blockMicros)
+        smoothedLeadMicros = smoothed
+        if (abs(smoothed) <= SOFT_TOLERANCE_MICROS) return 0L
+        return (-smoothed * blockMicros / CORRECTION_HORIZON_MICROS).toLong()
+    }
+
+    private fun restartCorrection() {
+        corrector?.reset()
+        smoothedLeadMicros = null
     }
 
     private suspend fun decodeAndWrite(out: SinkHandle, chunk: AudioChunk): Boolean {
@@ -249,6 +292,7 @@ internal class Scheduler(
 
     private suspend fun write(out: SinkHandle, pcm: ByteArray, offset: Int = 0, length: Int = pcm.size): Boolean {
         val fmt = format ?: return false
+        checkLoopGap()
         var at = offset
         val end = offset + length
         while (at < end) {
@@ -261,6 +305,7 @@ internal class Scheduler(
             at += written
         }
         if (fmt.isPcm) framesWritten += length / fmt.bytesPerFrame
+        lastWriteMicros = clock.nowMicros()
         if (!played && length > 0) {
             played = true
             reportFirstAudio()
@@ -281,6 +326,44 @@ internal class Scheduler(
         waitOrWake(SINK_EVENT_GRACE_MICROS)
         if (pipeline.stream.value.phase == StreamPhase.Playing) pipeline.onSinkFailure(AudioEvent.SinkDied)
     }
+
+    /** One line per hard correction, capped per stream: every input of the lead it acted on. */
+    private fun logCorrection(kind: String, lead: Long, queuedMicros: Long, position: SinkPosition?) {
+        if (correctionLogs++ >= MAX_CORRECTION_LOGS) return
+        val estimate = clockSync.snapshot()
+        logger.w {
+            "Correction $kind: leadMs=${lead / MICROS_PER_MILLI} queuedMs=${queuedMicros / MICROS_PER_MILLI} " +
+                "head=${position?.framesPlayed} written=$framesWritten sinceWriteMs=${sinceWriteMillis()} " +
+                "underruns=$underruns offsetUs=${estimate?.offsetMicros?.toLong()} " +
+                "driftPpm=${estimate?.driftPerMicro?.times(MICROS_PER_SECOND)} clockSamples=${estimate?.samples} " +
+                "clock=${clockSync.quality()}"
+        }
+    }
+
+    /** A sink underrun is audible by itself; the gap since the last write tells a stalled feeder from a slow sink. */
+    private fun checkUnderruns(out: SinkHandle) {
+        val count = out.underrunCount()
+        if (count <= underruns) return
+        if (correctionLogs++ < MAX_CORRECTION_LOGS) {
+            logger.w { "Sink underrun: +${count - underruns} total=$count sinceWriteMs=${sinceWriteMillis()}" }
+        }
+        underruns = count
+    }
+
+    /**
+     * A long gap between writes while playing means the feeder stalled (thread starved,
+     * decoder or data late), as opposed to a glitch below the sink that the loop cannot see.
+     */
+    private fun checkLoopGap() {
+        val gapMillis = sinceWriteMillis()
+        if (!played || gapMillis < LOOP_GAP_LOG_MILLIS) return
+        if (correctionLogs++ < MAX_CORRECTION_LOGS) {
+            logger.w { "Audio loop gap: sinceWriteMs=$gapMillis bufferedMs=${pipeline.buffer.spanMicros / MICROS_PER_MILLI}" }
+        }
+    }
+
+    private fun sinceWriteMillis(): Long =
+        if (lastWriteMicros == 0L) -1L else (clock.nowMicros() - lastWriteMicros) / MICROS_PER_MILLI
 
     /** One line per stream start: what the sink build and the first chunk cost. */
     private fun reportFirstAudio() {
@@ -318,10 +401,10 @@ internal class Scheduler(
             logger.w { "Sink close failed: ${e.message}" }
         }
         handle = null
-        if (lateDrops > 0 || insertedSilenceMicros > 0) {
+        if (lateDrops > 0 || insertedSilenceMicros > 0 || underruns > 0) {
             logger.w {
                 "Stream stats: lateDrops=$lateDrops lateMs=${lateMicros / MICROS_PER_MILLI} " +
-                    "insertedSilenceMs=${insertedSilenceMicros / MICROS_PER_MILLI}"
+                    "insertedSilenceMs=${insertedSilenceMicros / MICROS_PER_MILLI} underruns=$underruns"
             }
         }
     }
@@ -333,8 +416,14 @@ internal class Scheduler(
     private fun microsToBytes(micros: Long, fmt: SinkFormat): Int = (microsToFrames(micros, fmt) * fmt.bytesPerFrame).toInt()
 
     private companion object {
-        /** Below this, do nothing. */
+        /** Below this smoothed lead, do nothing. */
         const val SOFT_TOLERANCE_MICROS = 2_000L
+
+        /** Time constant of the lead average: well above the reading noise, well below the drift. */
+        const val LEAD_SMOOTHING_MICROS = 1_000_000L
+
+        /** Time to correct the whole smoothed lead; four time constants is critical damping. */
+        const val CORRECTION_HORIZON_MICROS = 4 * LEAD_SMOOTHING_MICROS
 
         /** Between soft and hard, resample; beyond, insert silence or drop. */
         const val HARD_TOLERANCE_MICROS = 40_000L
@@ -343,6 +432,12 @@ internal class Scheduler(
         const val MAX_SILENCE_MICROS = 200_000L
 
         const val DECODER_FAILURE_LIMIT = 5
+
+        /** Correction and underrun lines per stream; the stream stats line keeps the totals. */
+        const val MAX_CORRECTION_LOGS = 30
+
+        /** Writes normally return a block (~100 ms) apart; well beyond that the feeder stalled. */
+        const val LOOP_GAP_LOG_MILLIS = 150L
         const val BITS_PER_BYTE = 8
         const val MICROS_PER_SECOND = 1_000_000L
         const val MICROS_PER_MILLI = 1_000L

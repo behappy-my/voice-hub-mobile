@@ -8,6 +8,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioRouting
 import android.media.AudioTrack
 import android.os.Build
 import co.touchlab.kermit.Logger
@@ -18,6 +19,7 @@ import io.music_assistant.sendspin.api.SinkEvent
 import io.music_assistant.sendspin.api.SinkFormat
 import io.music_assistant.sendspin.api.SinkHandle
 import io.music_assistant.sendspin.api.SinkPosition
+import io.music_assistant.sendspin.api.SteppedHeadTracker
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
@@ -36,7 +38,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
  * behind the head by the output latency and is unavailable or stale for the
  * first few hundred ms of a fresh track, so mixing the two sources moves the
  * scheduler's queue estimate by that latency on every switch. Do not add it
- * back as a fallback.
+ * back as a fallback. The head moves in mixer-period steps, so
+ * [SteppedHeadTracker] stamps each reading with the time the head last moved.
  */
 class AudioTrackSink(
     context: Context,
@@ -76,7 +79,10 @@ class AudioTrackSink(
             // 4x minimum absorbs scheduling jitter while keeping the steady-state fill low.
             .setBufferSizeInBytes(minBuffer * BUFFER_MULTIPLIER)
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+            // Not LOW_LATENCY: aptX Adaptive "Auto-adjust" switches codec profile on every foreground
+            // change of a low-latency track, which pauses playback (#1141). The extra mixer delay is
+            // unmeasured (latencyMicros = null), a constant offset that matters only for grouping.
+            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
             .build()
         if (track.state != AudioTrack.STATE_INITIALIZED) {
             track.release()
@@ -88,7 +94,8 @@ class AudioTrackSink(
         }
         track.play()
         logger.i {
-            "AudioTrack opened: ${format.sampleRate}Hz ${format.channels}ch ${format.bitDepth}bit, buffer ${minBuffer * BUFFER_MULTIPLIER}"
+            "AudioTrack opened: ${format.sampleRate}Hz ${format.channels}ch ${format.bitDepth}bit, " +
+                "buffer ${minBuffer * BUFFER_MULTIPLIER}, performanceMode=${track.performanceMode}"
         }
         return Handle(track, format)
     }
@@ -98,7 +105,8 @@ class AudioTrackSink(
 
         /** The head position wraps at 32 bits. */
         private val frames = MonotonicFrameCounter()
-        private var interrupted = false
+        private val head = SteppedHeadTracker(format.sampleRate)
+        private val interruption = InterruptionRecovery()
 
         /** Set on the first interruption; the audio thread may be inside a blocking write at that moment. */
         @Volatile
@@ -108,17 +116,15 @@ class AudioTrackSink(
         override val latencyMicros: Long? = null
 
         private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+            logger.i { "Audio focus change: $change" }
             when (change) {
                 AudioManager.AUDIOFOCUS_GAIN -> {
                     runCatching { track.setVolume(1f) }
-                    if (interrupted) {
-                        interrupted = false
-                        sinkEvents.tryEmit(SinkEvent.FocusRegained)
-                    }
+                    applyInterruption(interruption.focusGained(), "focus_gain")
                 }
 
-                AudioManager.AUDIOFOCUS_LOSS -> interrupt(resumable = false)
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> interrupt(resumable = true)
+                AudioManager.AUDIOFOCUS_LOSS -> applyInterruption(interruption.focusLost(false), "focus_loss")
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> applyInterruption(interruption.focusLost(true), "focus_transient")
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> runCatching { track.setVolume(DUCK_GAIN) }
             }
         }
@@ -130,24 +136,38 @@ class AudioTrackSink(
         // Headphones unplugged or Bluetooth gone: the output is no longer what the user hears.
         private val noisyReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) interrupt(resumable = false)
+                if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                    applyInterruption(interruption.outputDisconnected(), "audio_becoming_noisy")
+                }
             }
         }
 
         // Some Bluetooth and Android Auto routings deliver no focus loss on a call.
         private val modeListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             AudioManager.OnModeChangedListener { mode ->
-                if (mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION) {
-                    interrupt(
-                        resumable = true,
-                    )
-                }
+                logger.i { "Audio mode change: $mode" }
+                applyInterruption(
+                    when (mode) {
+                        AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION -> interruption.callMode(true)
+                        AudioManager.MODE_NORMAL -> interruption.callMode(false)
+                        else -> InterruptionRecovery.Action.NONE
+                    },
+                    "mode_$mode",
+                )
             }
         } else {
             null
         }
 
+        // Fires once with the initial device, then on every reroute, including a track the system rebuilds.
+        private val routingListener = AudioRouting.OnRoutingChangedListener { router ->
+            val device = router.routedDevice
+            logger.i { "AudioTrack routed to ${device?.productName} type=${device?.type} id=${device?.id}" }
+            sinkEvents.tryEmit(SinkEvent.RouteChanged)
+        }
+
         init {
+            track.addOnRoutingChangedListener(routingListener, null)
             val granted = audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             if (!granted) logger.w { "Audio focus not granted; playing anyway" }
             context.registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
@@ -156,17 +176,24 @@ class AudioTrackSink(
             }
         }
 
-        private fun interrupt(resumable: Boolean) {
-            interrupted = resumable
-            dead = true
-            // A write blocked on a paused track never returns; stop() wakes it.
-            runCatching {
-                track.pause()
-                track.flush()
-                track.stop()
+        private fun applyInterruption(action: InterruptionRecovery.Action, reason: String) {
+            logger.i { "Audio interruption: reason=$reason action=$action" }
+            when (action) {
+                InterruptionRecovery.Action.NONE -> Unit
+                InterruptionRecovery.Action.RESUME -> sinkEvents.tryEmit(SinkEvent.FocusRegained)
+                InterruptionRecovery.Action.INTERRUPT -> {
+                    dead = true
+                    // Wake any blocked writer; the next server stream opens a fresh track.
+                    runCatching {
+                        track.pause()
+                        track.flush()
+                        track.stop()
+                    }
+                    frames.reset()
+                    head.reset()
+                    sinkEvents.tryEmit(SinkEvent.FocusLost)
+                }
             }
-            frames.reset()
-            sinkEvents.tryEmit(SinkEvent.FocusLost)
         }
 
         override fun write(pcm: ByteArray, offset: Int, length: Int): Int {
@@ -201,14 +228,16 @@ class AudioTrackSink(
         override fun flush() {
             runCatching { track.flush() }
             frames.reset()
+            head.reset()
         }
 
         override fun position(): SinkPosition =
-            SinkPosition(frames.extend(track.playbackHeadPosition.toLong()), clock.nowMicros())
+            head.position(frames.extend(track.playbackHeadPosition.toLong()), clock.nowMicros())
 
         override fun underrunCount(): Int = runCatching { track.underrunCount }.getOrDefault(0)
 
         override fun close() {
+            track.removeOnRoutingChangedListener(routingListener)
             runCatching { context.unregisterReceiver(noisyReceiver) }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 modeListener?.let { runCatching { audioManager.removeOnModeChangedListener(it) } }

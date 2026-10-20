@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -33,6 +34,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class AudioPipelineTest {
     private val flac = StreamStartPlayer("flac", 48_000, 2, 16)
+    private val ramp8k = StreamStartPlayer("flac", 8_000, 2, 16)
     private val bytesPerFrame = 4
 
     private inner class Harness(val scope: TestScope, synced: Boolean = true) {
@@ -177,8 +179,58 @@ class AudioPipelineTest {
         assertEquals(5, h.handle.writes.size)
     }
 
+    /**
+     * Feeds 10 ms chunks of an 8 kHz rising ramp, 4 per frame, and returns the bytes fed: an interpolated
+     * frame then lands between two input values. Time stands still and every write is queued, so each
+     * chunk's lead is minus the sink latency set for it.
+     */
+    private fun TestScope.feedRamp(h: Harness, leadsMillis: List<Int>): ByteArray =
+        leadsMillis.mapIndexed { n, leadMillis ->
+            h.sink.latencyMicros = -leadMillis * 1_000L
+            val bytes = ByteArray(80 * bytesPerFrame)
+            for (i in 0 until 80) {
+                val v = (n * 80 + i) * 4 // positive: the corrector truncates toward zero, a floor only here
+                for (ch in 0..1) {
+                    bytes[i * bytesPerFrame + ch * 2] = v.toByte()
+                    bytes[i * bytesPerFrame + ch * 2 + 1] = (v shr 8).toByte()
+                }
+            }
+            h.pipeline.onAudio(AudioChunk(n * 10_000L, bytes, 0))
+            runCurrent()
+            bytes
+        }.reduce(ByteArray::plus)
+
     @Test
-    fun withoutPositionFeedbackTheLoopIsOpenWaitUntilDueAndDropLate() = pipelineTest { h ->
+    fun resamplingThatStartsAndStopsKeepsTheSignalContinuous() = pipelineTest { h ->
+        h.pipeline.apply(StreamAction.StartFresh(ramp8k))
+        runCurrent()
+        // Sustained leads move the smoothed lead out of the 2 ms band, back through it, out to the
+        // other side, and in and out once more.
+        val leads = List(1) { 0 } + List(20) { 35 } + List(40) { -35 } + List(5) { 0 } + List(30) { 35 }
+        val input = feedRamp(h, leads)
+        val pcm = h.handle.writes.reduce(ByteArray::plus)
+        assertFalse(pcm.contentEquals(input), "the corrector never ran")
+        val left = (0 until pcm.size / bytesPerFrame).map { f ->
+            (pcm[f * bytesPerFrame].toInt() and 0xFF) or (pcm[f * bytesPerFrame + 1].toInt() shl 8)
+        }
+        // A resample at most 0.2% off keeps every step in 3..5; a lost or a stale frame does not.
+        left.zipWithNext { a, b -> b - a }.forEachIndexed { f, step ->
+            assertTrue(step in 3..5, "frame ${f + 1}: step $step (a lost or a stale frame)")
+        }
+    }
+
+    @Test
+    fun aLeadThatJittersAroundZeroIsNotCorrected() = pipelineTest { h ->
+        h.pipeline.apply(StreamAction.StartFresh(ramp8k))
+        runCurrent()
+        // One reading is off by 10 ms either way (a coarse playback head); the average stays at zero.
+        val leads = listOf(0) + List(40) { if (it % 2 == 0) 10 else -10 }
+        val input = feedRamp(h, leads)
+        assertContentEquals(input, h.handle.writes.reduce(ByteArray::plus))
+    }
+
+    @Test
+    fun withoutPositionFeedbackTheLoopIsOpenWaitUntilDueAndWriteLate() = pipelineTest { h ->
         h.sink.reportPosition = false
         h.sink.latencyMicros = null
         h.pipeline.apply(StreamAction.StartFresh(flac))
@@ -190,9 +242,13 @@ class AudioPipelineTest {
         runCurrent()
         assertEquals(1, h.handle.writes.size)
         assertTrue(h.handle.writes[0].none { it == 0.toByte() }, "no silence inserted in open loop")
-        h.pipeline.onAudio(h.chunk(-100))
+        // The next chunk in sequence arrives 250 ms after it was due (an audio-thread stall).
+        advanceTimeBy(250)
+        h.feed(60)
         runCurrent()
-        assertEquals(1, h.handle.writes.size, "late chunk dropped")
+        // The native queue still plays it in sequence; the local player is never grouped.
+        assertEquals(2, h.handle.writes.size, "late chunk written, not dropped")
+        assertTrue(h.handle.writes[1].none { it == 0.toByte() }, "late chunk written whole")
     }
 
     @Test

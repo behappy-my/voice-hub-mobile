@@ -1,0 +1,52 @@
+{
+  "source_commit": "e7f0154c10ae6a0c153e3ec3e7cb51bc60780f00",
+  "baseline_commit": "8c85de38",
+  "version_name": "0.14.0-voicehub.3",
+  "version_code": 17,
+  "application_id": "io.music_assistant.client.voicehub",
+  "tests": {
+    "sendspin": {
+      "tests": 209,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "composeApp": {
+      "tests": 587,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "androidApp": {
+      "tests": 134,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lint": {
+    "Error": 0,
+    "Fatal": 0,
+    "Warning": 7,
+    "Hint": 2
+  },
+  "physical_phone_car_validation": false,
+  "specific_incident_root_cause_confirmed": false,
+  "server_runtime_modified": false,
+  "phone_client_version_from_server": null,
+  "release_build": "passed",
+  "github_pr": "https://github.com/behappy-my/voice-hub-mobile/pull/3",
+  "release_build_host": "nas",
+  "signature_matches_voicehub_2": true,
+  "signer_sha256": "2e1456ffc23d5621739c6b0f6755c8494b026ee49708cb956ee3708d9d417737",
+  "artifacts": {
+    "VoiceHub-Music-0.14.0-voicehub.3-arm64.apk": {
+      "sha256": "c1cf438ed1ab3ff50b3c53d132af2338e2095d95f96b8d640252355f6519453f",
+      "size": 33144164
+    },
+    "VoiceHub-Music-0.14.0-voicehub.3-arm64.zip": {
+      "sha256": "5281e38a5369aec5e75da85fef28fb488a61fe627fd539485a919f3137339622",
+      "size": 33144876
+    }
+  }
+}
