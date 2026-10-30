@@ -15,19 +15,18 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Local-player commands travel over the MA API, not over Sendspin. While the
- * command transport is not ready they are queued (deduplicated per action) and
- * replayed by one worker that wakes when [isReady] turns true or when a
- * command is queued while already ready (a send that failed across a
- * readiness bounce). Sendspin activation is not a trigger: the audio
- * connection may stay up through an MA-only outage.
+ * command transport is not ready they are queued (deduplicated per action).
+ * Playback-starting commands also wait for [playbackReady]: Sendspin connected
+ * and the server reporting the real local player available. Pause needs only
+ * the command transport. Either readiness change wakes the single worker.
  *
  * Queueing also calls [requestRecovery]. Every command here comes from a user
  * gesture or an interruption, so the queue asks for the session back instead of
  * waiting for readiness to arrive on its own — a backgrounded session torn down
  * for idleness would otherwise only come back on the next foreground.
  *
- * A replay is sent once; a failure during replay is logged and dropped, so
- * a persistently failing command cannot spin the worker.
+ * A replay is sent once; a failure during replay is logged and dropped, and
+ * waiting entries expire after ten seconds. A later Pause cancels queued Play.
  */
 internal class LocalCommandQueue(
     private val isReady: StateFlow<Boolean>,
