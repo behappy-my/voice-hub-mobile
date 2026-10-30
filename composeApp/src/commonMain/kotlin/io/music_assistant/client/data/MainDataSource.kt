@@ -1488,8 +1488,7 @@ class MainDataSource(
                     val localPlayerId = settings.sendspinEffectivePlayerId.value
                     // An unreachable Sendspin player still counts as absent: the synthetic
                     // local player must take over, or Android Auto is left without one.
-                    val localServerPlayer =
-                        visiblePlayers.find { it.id == localPlayerId && it.isAvailable }
+                    val localServerPlayer = registeredLocalPlayer(list, localPlayerId)
                     localPlayerController.onInitialPlayersReceived(
                         hasLocalPlayer = localServerPlayer != null,
                     )
