@@ -182,6 +182,9 @@ class AudioTrackSink(
                 InterruptionRecovery.Action.NONE -> Unit
                 InterruptionRecovery.Action.RESUME -> sinkEvents.tryEmit(SinkEvent.FocusRegained)
                 InterruptionRecovery.Action.INTERRUPT -> {
+                    // Queue the cause before a blocked write can return -1. Native stop/flush
+                    // can take longer than the scheduler's grace period on Bluetooth outputs.
+                    sinkEvents.tryEmit(SinkEvent.FocusLost)
                     dead = true
                     // Wake any blocked writer; the next server stream opens a fresh track.
                     runCatching {
@@ -191,7 +194,6 @@ class AudioTrackSink(
                     }
                     frames.reset()
                     head.reset()
-                    sinkEvents.tryEmit(SinkEvent.FocusLost)
                 }
             }
         }

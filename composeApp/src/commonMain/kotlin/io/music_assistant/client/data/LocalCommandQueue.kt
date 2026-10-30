@@ -8,7 +8,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,26 +33,37 @@ internal class LocalCommandQueue(
     private val isReady: StateFlow<Boolean>,
     private val send: suspend (Request) -> Result<*>,
     scope: CoroutineScope,
+    private val playbackReady: StateFlow<Boolean> = isReady,
     private val requestRecovery: () -> Unit,
 ) {
     private val log = Logger.withTag("LocalCommandQueue")
     private val mutex = Mutex()
+    private val deliveryMutex = Mutex()
     private val queue = mutableListOf<Entry>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
+    private val pendingExpiry = scope
 
     private data class Entry(val action: PlayerAction, val request: Request)
 
     init {
-        scope.launch { isReady.filter { it }.collect { wake.trySend(Unit) } }
+        scope.launch { combine(isReady, playbackReady) { api, audio -> api to audio }.collect { wake.trySend(Unit) } }
         scope.launch { wake.consumeEach { if (isReady.value) drain() } }
     }
 
-    suspend fun sendOrQueue(action: PlayerAction, request: Request) {
-        if (!isReady.value) {
+    suspend fun sendOrQueue(action: PlayerAction, request: Request) = deliveryMutex.withLock {
+        // A newer transport intention must cancel a queued resume, even if the
+        // newer Pause can be sent immediately while audio is reconnecting.
+        if (action == PlayerAction.Play || action == PlayerAction.Pause) {
+            mutex.withLock { queue.removeAll {
+                it.action == PlayerAction.Play || it.action == PlayerAction.Pause ||
+                    (action == PlayerAction.Pause && it.action.needsAudio)
+            } }
+        }
+        if (!readyFor(action)) {
             // Enqueue first: the drain must see the entry when readiness flips.
             enqueue(action, request)
             requestRecovery()
-            return
+            return@withLock
         }
         if (send(request).isFailure) {
             enqueue(action, request)
@@ -62,14 +73,25 @@ internal class LocalCommandQueue(
 
     suspend fun clear() = mutex.withLock { queue.clear() }
 
+    private fun readyFor(action: PlayerAction): Boolean = isReady.value &&
+        (!action.needsAudio || playbackReady.value)
+
+    private val PlayerAction.needsAudio: Boolean
+        get() = this == PlayerAction.Play || this == PlayerAction.TogglePlayPause ||
+            this == PlayerAction.Next || this == PlayerAction.Previous ||
+            this is PlayerAction.SeekTo || this is PlayerAction.SeekBy
+
     private suspend fun drain() {
-        val entries = mutex.withLock {
-            if (queue.isEmpty()) return
-            log.i { "Draining ${queue.size} queued commands" }
-            queue.toList().also { queue.clear() }
-        }
-        entries.forEach { entry ->
-            send(entry.request).onFailure { log.w { "Replay of ${entry.request.command} failed: ${it.message}" } }
+        while (true) {
+            val delivered = deliveryMutex.withLock {
+                val entry = mutex.withLock {
+                    val index = queue.indexOfFirst { readyFor(it.action) }
+                    if (index < 0) null else queue.removeAt(index)
+                } ?: return@withLock false
+                send(entry.request).onFailure { log.w { "Replay of ${entry.request.command} failed: ${it.message}" } }
+                true
+            }
+            if (!delivered) return
             delay(REPLAY_SPACING_MS)
         }
     }
@@ -102,6 +124,14 @@ internal class LocalCommandQueue(
                 }
 
                 else -> queue.add(entry)
+            }
+            // Never replay yesterday's Play after a prolonged outage. Identity
+            // comparison avoids an older expiry deleting a replacement intent.
+            pendingExpiry.launch {
+                delay(10_000)
+                mutex.withLock {
+                    if (queue.removeAll { it === entry }) log.w { "Expired queued ${entry.request.command}" }
+                }
             }
         }
     }

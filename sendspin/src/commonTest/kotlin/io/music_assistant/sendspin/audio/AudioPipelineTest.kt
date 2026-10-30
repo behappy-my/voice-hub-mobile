@@ -13,6 +13,7 @@ import io.music_assistant.sendspin.wire.StreamStartPlayer
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -425,6 +426,72 @@ class AudioPipelineTest {
         advanceTimeBy(100)
         runCurrent()
         assertEquals(null, h.events.tryReceive().getOrNull(), "the cause is not overwritten by SinkDied")
+    }
+
+    @Test
+    fun anAudioWakeupDoesNotHideThePendingFocusLoss() = pipelineTest { h ->
+        h.pipeline.apply(StreamAction.StartFresh(flac))
+        runCurrent()
+        h.handle.onWrite = {
+            h.handle.dead = true
+            h.handle.emit(SinkEvent.FocusLost)
+        }
+        // The first chunk wakes the scheduler; the second leaves a wakeup queued.
+        // That unrelated wakeup must not end the grace period for the sink event.
+        h.feed(0, 10)
+        runCurrent()
+        assertEquals(StreamPhase.Ended, h.pipeline.phase)
+        advanceTimeBy(100)
+        runCurrent()
+        val seen = generateSequence { h.events.tryReceive().getOrNull() }.toList()
+        assertEquals(listOf(AudioEvent.FocusLost), seen, "one stop with the interruption cause")
+    }
+
+    @Test
+    fun anAudioWakeupDoesNotCutOffADelayedFocusLoss() = pipelineTest { h ->
+        h.pipeline.apply(StreamAction.StartFresh(flac))
+        runCurrent()
+        val interruptedHandle = h.handle
+        interruptedHandle.onWrite = {
+            interruptedHandle.dead = true
+            launch {
+                delay(20)
+                interruptedHandle.emit(SinkEvent.FocusLost)
+            }
+        }
+        h.feed(0, 10)
+        runCurrent()
+        assertEquals(null, h.events.tryReceive().getOrNull(), "an audio wakeup cannot end the grace period")
+        advanceTimeBy(20)
+        runCurrent()
+        assertEquals(AudioEvent.FocusLost, h.events.tryReceive().getOrNull())
+        assertEquals(StreamPhase.Ended, h.pipeline.phase)
+        advanceTimeBy(100)
+        runCurrent()
+        assertEquals(null, h.events.tryReceive().getOrNull(), "the delayed cause is not overwritten by SinkDied")
+    }
+
+    @Test
+    fun anOldDeadWriteDoesNotStopOrConsumeAudioFromANewStream() = pipelineTest { h ->
+        h.pipeline.apply(StreamAction.StartFresh(flac))
+        runCurrent()
+        val oldHandle = h.handle
+        oldHandle.onWrite = {
+            oldHandle.dead = true
+            // A server restart races with the old device reporting its failed write.
+            h.pipeline.apply(StreamAction.StartFresh(flac))
+            h.feed(0)
+        }
+        h.feed(0)
+        runCurrent()
+        advanceTimeBy(100)
+        runCurrent()
+        assertEquals(StreamPhase.Playing, h.pipeline.phase)
+        assertEquals(2, h.sink.handles.size, "the replacement stream opens a new sink")
+        assertTrue(oldHandle.closed)
+        assertEquals(1, h.handle.writes.size, "the first replacement chunk must not be polled by the old write")
+        val seen = generateSequence { h.events.tryReceive().getOrNull() }.toList()
+        assertEquals(listOf(AudioEvent.Started), seen, "an old sink failure cannot stop the new stream")
     }
 
     @Test

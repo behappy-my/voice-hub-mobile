@@ -16,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -300,7 +301,9 @@ internal class Scheduler(
             val written = out.write(pcm, at, end - at)
             if (written <= 0) {
                 onDeadWrite(written)
-                return true
+                // Failure clears the old buffer. A replacement stream may already have
+                // arrived while waiting; its first chunk must not be polled as the old one.
+                return false
             }
             at += written
         }
@@ -318,13 +321,20 @@ internal class Scheduler(
     /**
      * A dead write is usually an interruption the sink has already announced.
      * That event is queued behind this coroutine on the single audio thread, so
-     * yield briefly and let it name the cause; only an unexplained death is
-     * reported as a sink failure.
+     * wait for a stream transition and let it name the cause. Ordinary audio
+     * wakeups must not end this grace period, and a failed old handle must not
+     * end a replacement stream.
      */
     private suspend fun onDeadWrite(written: Int) {
         logger.w { "Sink write returned $written" }
-        waitOrWake(SINK_EVENT_GRACE_MICROS)
-        if (pipeline.stream.value.phase == StreamPhase.Playing) pipeline.onSinkFailure(AudioEvent.SinkDied)
+        val generation = openGeneration
+        withTimeoutOrNull(SINK_EVENT_GRACE_MICROS / MICROS_PER_MILLI) {
+            pipeline.stream.first { it.phase != StreamPhase.Playing || it.generation != generation }
+        }
+        val state = pipeline.stream.value
+        if (state.phase == StreamPhase.Playing && state.generation == generation) {
+            pipeline.onSinkFailure(AudioEvent.SinkDied)
+        }
     }
 
     /** One line per hard correction, capped per stream: every input of the lead it acted on. */

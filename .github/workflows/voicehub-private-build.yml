@@ -1,0 +1,48 @@
+name: VoiceHub signed APK and recovery tests
+on:
+  push:
+    branches: [fix/playback-readiness-20261030]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: voicehub-mobile-private-build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore private signing material
+        env:
+          SIGNING: ${{ secrets.VOICEHUB_SIGNING_BUNDLE }}
+        run: |
+          python3 - <<'PY'
+          import base64,json,os,pathlib
+          os.umask(0o077)
+          data=json.loads(base64.b64decode(os.environ.pop('SIGNING')))
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'voicehub-signing';root.mkdir()
+          (root/'keystore.p12').write_bytes(base64.b64decode(data.pop('keystore')))
+          for value in data.values(): print('::add-mask::'+value)
+          data['storeFile']=str(root/'keystore.p12')
+          (root/'signing.properties').write_text('\n'.join(k+'='+v for k,v in data.items()))
+          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('VOICEHUB_SIGNING_PROPERTIES='+str(root/'signing.properties')+'\n')
+          PY
+      - name: Recovery and audio regression tests
+        run: ./gradlew --no-daemon --max-workers=2 -Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process testAndroidHostTest :androidApp:testDebugUnitTest
+      - name: Build signed arm64 APK
+        run: ./gradlew --no-daemon --max-workers=2 -Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process :androidApp:assembleSelfSignedRelease
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voicehub-mobile-5-build
+          path: |
+            androidApp/build/outputs/apk/selfSignedRelease/*.apk
+            **/build/test-results/**/*.xml
+          retention-days: 14

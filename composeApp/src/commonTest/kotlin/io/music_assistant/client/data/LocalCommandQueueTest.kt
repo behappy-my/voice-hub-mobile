@@ -31,6 +31,65 @@ class LocalCommandQueueTest {
 
     private fun request(command: String) = Request(command = command)
 
+    @Test
+    fun apiReadyBeforeAudioDoesNotLoseResumeAndReplaysOnce() = runTest {
+        val audio = MutableStateFlow(false)
+        val q = LocalCommandQueue(ready, ::record, backgroundScope, audio) { recoveries++ }
+        q.sendOrQueue(PlayerAction.Play, request("play"))
+        settle()
+        assertEquals(emptyList(), sent)
+        audio.value = true
+        settle()
+        assertEquals(listOf("play"), sent)
+        audio.value = false
+        settle()
+        audio.value = true
+        settle()
+        assertEquals(listOf("play"), sent)
+    }
+
+    @Test
+    fun leavingCarOrManualPauseCancelsResumeWaitingForAudio() = runTest {
+        val audio = MutableStateFlow(false)
+        val q = LocalCommandQueue(ready, ::record, backgroundScope, audio) { recoveries++ }
+        q.sendOrQueue(PlayerAction.Play, request("play"))
+        q.sendOrQueue(PlayerAction.Pause, request("pause"))
+        settle()
+        assertEquals(listOf("pause"), sent, "pause need not wait for audio")
+        audio.value = true
+        settle()
+        assertEquals(listOf("pause"), sent, "no phone loudspeaker replay after leaving car")
+    }
+
+    @Test
+    fun unavailableAudioResumeExpiresInsteadOfPlayingMuchLater() = runTest {
+        val audio = MutableStateFlow(false)
+        val q = LocalCommandQueue(ready, ::record, backgroundScope, audio) { recoveries++ }
+        q.sendOrQueue(PlayerAction.Play, request("play"))
+        advanceTimeBy(10_001)
+        audio.value = true
+        settle()
+        assertEquals(emptyList(), sent)
+    }
+
+    @Test
+    fun readinessLossMidDrainKeepsUnsentCommandUntilConnectionReturns() = runTest {
+        ready.value = false
+        val q = LocalCommandQueue(ready, { req ->
+            sent += req.command
+            ready.value = false
+            Result.success(Unit)
+        }, backgroundScope) {}
+        q.sendOrQueue(PlayerAction.Next, request("next"))
+        q.sendOrQueue(PlayerAction.Previous, request("previous"))
+        ready.value = true
+        settle()
+        assertEquals(listOf("next"), sent)
+        ready.value = true
+        settle()
+        assertEquals(listOf("next", "previous"), sent)
+    }
+
     /** Runs the background collector and any replay spacing (advanceUntilIdle skips background-only work). */
     private fun TestScope.settle() = advanceTimeBy(1_000)
 

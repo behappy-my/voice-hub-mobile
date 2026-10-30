@@ -164,10 +164,16 @@ class LocalPlayerAdapter(
         }
         .stateIn(this, SharingStarted.Eagerly, 0.0)
 
+    private val serverPlayerAvailable = MutableStateFlow(false)
+    private val playbackReady = combine(player.state, serverPlayerAvailable) { state, available ->
+        state is PlayerState.Connected && available
+    }.stateIn(this, SharingStarted.Eagerly, false)
+
     private val commands = LocalCommandQueue(
         isReady = apiClient.isReadyForCommands,
         send = apiClient::sendRequest,
         scope = this,
+        playbackReady = playbackReady,
         requestRecovery = apiClient::requestCommandRecovery,
     )
     private var pendingPlayTimeoutJob: Job? = null
@@ -178,7 +184,12 @@ class LocalPlayerAdapter(
         launch {
             // The server addresses the local player by the module's identity; keep the
             // persisted mirror in sync so other screens address the right player.
+            var wasConnected = false
             player.state.collect { state ->
+                val connected = state is PlayerState.Connected
+                if (!connected) serverPlayerAvailable.value = false
+                if (connected && !wasConnected) _needsServerRefresh.emit(Unit)
+                wasConnected = connected
                 if (state is PlayerState.Connected && state.playerId != settings.sendspinEffectivePlayerId.value) {
                     settings.setSendspinEffectivePlayerId(state.playerId)
                     _localPlayerData.update { it?.copy(player = it.player.copy(id = state.playerId)) }
@@ -374,6 +385,7 @@ class LocalPlayerAdapter(
     // --- Server event reconciliation ---
 
     fun onServerPlayerUpdate(player: Player) {
+        serverPlayerAvailable.value = player.isAvailable
         if (player.isPlaying) cancelPendingPlayTimeout()
         _localPlayerData.update { current ->
             if (current == null) {
@@ -425,6 +437,7 @@ class LocalPlayerAdapter(
     // --- Synthetic player ---
 
     fun onInitialPlayersReceived(hasLocalPlayer: Boolean) {
+        if (!hasLocalPlayer) serverPlayerAvailable.value = false
         if (!settings.sendspinEnabled.value) {
             _localPlayerData.update { null }
             return
@@ -471,6 +484,7 @@ class LocalPlayerAdapter(
 
     /** Full reset: drop the optimistic UI state and pending offline commands (logout, disable). */
     fun clearState() {
+        serverPlayerAvailable.value = false
         pausedByInterruption = false
         _localPlayerData.update { null }
         launch { commands.clear() }

@@ -14,8 +14,8 @@ android {
         applicationId = "io.music_assistant.client.voicehub"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 17
-        versionName = "0.14.0-voicehub.3"
+        versionCode = 19
+        versionName = "0.14.0-voicehub.5"
     }
     packaging {
         resources {
@@ -189,4 +189,3 @@ androidComponents {
         )
     }
 }
-
