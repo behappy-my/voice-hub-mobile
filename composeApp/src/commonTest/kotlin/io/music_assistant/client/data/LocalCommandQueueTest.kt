@@ -1,6 +1,8 @@
 package io.music_assistant.client.data
 
 import io.music_assistant.client.api.Request
+import io.music_assistant.client.api.RpcEngine
+import io.music_assistant.client.api.awaitResponse
 import io.music_assistant.client.ui.compose.common.action.PlayerAction
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +15,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LocalCommandQueueTest {
@@ -212,5 +215,47 @@ class LocalCommandQueueTest {
         ready.value = true
         settle()
         assertEquals(emptyList(), sent)
+    }
+
+    @Test
+    fun lostReplyCannotBlockLaterPlayForeverOrReplayNextTwice() = runTest {
+        val rpc = RpcEngine({}, {})
+        val q = LocalCommandQueue(ready, { req ->
+            sent += req.command
+            if (req.command == "next") rpc.awaitResponse(req, 1_000) {} else Result.success(Unit)
+        }, backgroundScope) { recoveries++ }
+        val first = launch { q.sendOrQueue(PlayerAction.Next, request("next")) }
+        runCurrent()
+        val second = launch { q.sendOrQueue(PlayerAction.Play, request("play")) }
+        runCurrent()
+        assertEquals(listOf("next"), sent)
+        advanceTimeBy(1_001)
+        runCurrent()
+        assertTrue(first.isCompleted)
+        assertTrue(second.isCompleted)
+        assertEquals(listOf("next", "play"), sent)
+        settle()
+        assertEquals(listOf("next", "play"), sent, "unknown delivery must not cause a second Next")
+    }
+
+    @Test
+    fun disconnectReleasesInFlightPlayAndLetsUserPauseWin() = runTest {
+        val rpc = RpcEngine({}, {})
+        val q = LocalCommandQueue(ready, { req ->
+            sent += req.command
+            if (req.command == "play") rpc.awaitResponse(req, 10_000) {} else Result.success(Unit)
+        }, backgroundScope) { recoveries++ }
+        val first = launch { q.sendOrQueue(PlayerAction.Play, request("play")) }
+        runCurrent()
+        val pause = launch { q.sendOrQueue(PlayerAction.Pause, request("pause")) }
+        rpc.clear()
+        runCurrent()
+        assertTrue(first.isCompleted)
+        assertTrue(pause.isCompleted)
+        ready.value = false
+        settle()
+        ready.value = true
+        settle()
+        assertEquals(listOf("play", "pause"), sent, "no stale Play after Pause or leaving the car")
     }
 }

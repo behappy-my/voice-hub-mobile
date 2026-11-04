@@ -2,6 +2,7 @@ package io.music_assistant.client.data
 
 import co.touchlab.kermit.Logger
 import io.music_assistant.client.api.Request
+import io.music_assistant.client.api.RpcDeliveryUnknownException
 import io.music_assistant.client.ui.compose.common.action.PlayerAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -64,7 +65,10 @@ internal class LocalCommandQueue(
             requestRecovery()
             return@withLock
         }
-        if (send(request).isFailure) {
+        val result = send(request)
+        if (result.exceptionOrNull() is RpcDeliveryUnknownException) {
+            log.w { "Not replaying unconfirmed ${request.command}: delivery may already have occurred" }
+        } else if (result.isFailure) {
             enqueue(action, request)
             wake.trySend(Unit)
         }

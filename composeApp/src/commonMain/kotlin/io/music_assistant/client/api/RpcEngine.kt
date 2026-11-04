@@ -42,8 +42,13 @@ class RpcEngine(
 ) {
     private val logger = Logger.withTag("RpcEngine")
 
+    private data class PendingResponse(
+        val onAnswer: (Answer) -> Unit,
+        val onFailure: (Throwable) -> Unit,
+    )
+
     private val pendingResponses =
-        AtomicReference<Map<String, (Answer) -> Unit>>(emptyMap())
+        AtomicReference<Map<String, PendingResponse>>(emptyMap())
 
     // Accumulated partial results: message_id -> list of result items received so far.
     private val partialResults =
@@ -96,13 +101,17 @@ class RpcEngine(
                     ?.let(onError)
             }
         }
-        callback.invoke(answer)
+        callback.onAnswer(answer)
         return true
     }
 
     /** Register a pending request callback by message_id. */
-    fun registerCallback(messageId: String, callback: (Answer) -> Unit) {
-        pendingResponses.update { it + (messageId to callback) }
+    fun registerCallback(
+        messageId: String,
+        onFailure: (Throwable) -> Unit = {},
+        callback: (Answer) -> Unit,
+    ) {
+        pendingResponses.update { it + (messageId to PendingResponse(callback, onFailure)) }
     }
 
     /** Remove a pending request callback (for cancellation on send failure). */
@@ -112,10 +121,12 @@ class RpcEngine(
         partialResults.update { it - messageId }
     }
 
-    /** Cancel all pending requests — call on disconnect to prevent leaks. */
+    /** Complete waiters on disconnect; dropping callbacks alone leaves their callers suspended. */
     fun clear() {
-        pendingResponses.store(emptyMap())
+        val pending = pendingResponses.getAndUpdate { emptyMap() }
         partialResults.store(emptyMap())
+        val error = RpcDeliveryUnknownException("Connection closed before the RPC response arrived")
+        pending.values.forEach { it.onFailure(error) }
     }
 
     private companion object {

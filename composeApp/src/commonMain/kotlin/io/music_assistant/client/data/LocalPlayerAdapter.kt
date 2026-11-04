@@ -273,7 +273,7 @@ class LocalPlayerAdapter(
      */
     fun handleLocalCommand(data: PlayerData, action: PlayerAction) {
         val resolved = playerRequestFactory.resolve(data, resolveLocalToggle(data, action))
-        log.i { "Local command: action=$resolved player=${data.player.id} ready=${apiClient.isReadyForCommands.value}" }
+        log.i { "Local command: action=$resolved player=${data.player.id} ready=${apiClient.isReadyForCommands.value} audioReady=${playbackReady.value}" }
         when (resolved) {
             PlayerAction.Play, PlayerAction.Pause, PlayerAction.Next, PlayerAction.Previous,
             is PlayerAction.SeekTo, is PlayerAction.SeekBy -> pausedByInterruption = false

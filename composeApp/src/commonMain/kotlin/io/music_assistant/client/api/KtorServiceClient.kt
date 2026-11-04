@@ -54,7 +54,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -66,7 +65,6 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -568,6 +566,7 @@ class KtorServiceClient(
                         }
 
                         is TransportState.Reconnecting -> {
+                            rpcEngine.clear()
                             if (isInBackground && canTearDownInBackground) {
                                 backgroundedConnectionInfo = backgroundInfo()
                                 transport.disconnect()
@@ -589,10 +588,12 @@ class KtorServiceClient(
 
                         is TransportState.Failed -> {
                             _sessionState.update { SessionState.Disconnected.Error(transportState.error) }
+                            rpcEngine.clear()
                             logger.i { "Transport→Failed → Disconnected.Error: ${transportState.error.message}" }
                         }
 
                         TransportState.Disconnected -> {
+                            rpcEngine.clear()
                             if (_sessionState.value !is SessionState.Disconnected) {
                                 _sessionState.update { SessionState.Disconnected.ByUser }
                                 logger.i { "Transport→Disconnected → Disconnected.ByUser" }
@@ -660,6 +661,7 @@ class KtorServiceClient(
         transport?.disconnect()
         transport?.close()
         _sessionState.update { SessionState.Connecting }
+        rpcEngine.clear()
         startConnectWatchdog()
 
         val directTransport = DirectTransport(
@@ -720,6 +722,7 @@ class KtorServiceClient(
         transport?.disconnect()
         transport?.close()
         _sessionState.update { SessionState.Connecting }
+        rpcEngine.clear()
         startConnectWatchdog()
 
         val webrtcTransport = WebRTCTransport(
@@ -1110,68 +1113,34 @@ class KtorServiceClient(
      * (login / authorize / logout / providers), which must be allowed to send
      * while the session is still in `AwaitingAuth(*)`.
      */
-    private suspend fun sendRequestRaw(request: Request): Result<Answer> =
-        suspendCancellableCoroutine { continuation ->
-            val msgId = request.messageId
-            val cmd = request.command
-            val startMs = currentTimeMillis()
-            logger.d { "sendRequest[$msgId] cmd=$cmd start" }
-
-            rpcEngine.registerCallback(msgId) { response ->
-                logger.d {
-                    "sendRequest[$msgId] cmd=$cmd resumed in " +
-                        "${currentTimeMillis() - startMs}ms"
+    private suspend fun sendRequestRaw(request: Request): Result<Answer> {
+        val timeoutMs = if (request.command.startsWith("players/cmd/")) 10_000L else 60_000L
+        return rpcEngine.awaitResponse(request, timeoutMs) {
+            val t = transport ?: throw IllegalStateException("Not connected")
+            try {
+                val jsonObject = myJson.encodeToJsonElement(Request.serializer(), request) as JsonObject
+                t.send(jsonObject)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                logger.e(error) { "sendRequest[${request.messageId}] cmd=${request.command} send FAILED" }
+                val sessionState = _sessionState.value
+                val transportState = transport?.state?.value
+                val canStartReconnect = request.command != APICommands.AUTH_LOGOUT &&
+                    sessionState !is SessionState.Connecting &&
+                    sessionState !is SessionState.Reconnecting &&
+                    transportState !is TransportState.Reconnecting
+                val reconnectStarted = canStartReconnect && reconnectFromCurrent("send failed: ${error.message}")
+                if (canStartReconnect && !reconnectStarted) {
+                    disconnect(SessionState.Disconnected.Error(Exception("Error sending command: ${error.message}")))
                 }
-                continuation.resume(Result.success(response))
-            }
-            // Caller cancellation (e.g. withTimeoutOrNull) must release the
-            // rpcEngine callback, otherwise it leaks for the session lifetime.
-            continuation.invokeOnCancellation {
-                logger.i {
-                    "sendRequest[$msgId] cmd=$cmd cancelled after " +
-                        "${currentTimeMillis() - startMs}ms"
-                }
-                rpcEngine.removeCallback(msgId)
-            }
-            launch {
-                val t = transport ?: run {
-                    logger.i { "sendRequest[$msgId] cmd=$cmd transport=null at send time" }
-                    rpcEngine.removeCallback(msgId)
-                    continuation.resume(Result.failure(IllegalStateException("Not connected")))
-                    return@launch
-                }
-                try {
-                    val jsonObject =
-                        myJson.encodeToJsonElement(Request.serializer(), request) as JsonObject
-                    t.send(jsonObject)
-                    logger.d { "sendRequest[$msgId] cmd=$cmd sent" }
-                } catch (e: Exception) {
-                    logger.e(e) { "sendRequest[$msgId] cmd=$cmd send FAILED" }
-                    rpcEngine.removeCallback(msgId)
-                    continuation.resume(Result.failure(e))
-                    // A send failure is definitive liveness evidence: the high-level
-                    // Connected/Authenticated state can lag behind a closed WebRTC data channel.
-                    // Kick a fresh reconnect so callers that queue on failure are replayed when
-                    // the transport returns. Logout is user-intent teardown; never resurrect it.
-                    val sessionState = _sessionState.value
-                    val transportState = transport?.state?.value
-                    val canStartReconnect = request.command != APICommands.AUTH_LOGOUT &&
-                        sessionState !is SessionState.Connecting &&
-                        sessionState !is SessionState.Reconnecting &&
-                        transportState !is TransportState.Reconnecting
-                    val reconnectStarted = canStartReconnect && reconnectFromCurrent("send failed: ${e.message}")
-                    if (canStartReconnect && !reconnectStarted) {
-                        disconnect(
-                            SessionState.Disconnected.Error(
-                                Exception("Error sending command: ${e.message}"),
-                            ),
-                        )
-                    }
-                }
+                throw error
             }
         }
+    }
 
     fun close() {
+        rpcEngine.clear()
         supervisorJob.cancel()
         currentClient.close()
     }

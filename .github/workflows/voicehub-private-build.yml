@@ -1,7 +1,7 @@
 name: VoiceHub signed APK and recovery tests
 on:
   push:
-    branches: [fix/playback-readiness-20261030]
+    branches: [fix/mobile-rpc-recovery-20261104]
   workflow_dispatch:
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: voicehub-mobile-5-build
+          name: voicehub-mobile-7-build
           path: |
             androidApp/build/outputs/apk/selfSignedRelease/*.apk
             **/build/test-results/**/*.xml
