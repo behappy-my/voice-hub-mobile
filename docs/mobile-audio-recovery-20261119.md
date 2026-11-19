@@ -1,6 +1,6 @@
 # 手机无声和连接恢复（2026-11-19）
 
-状态：候选，等待云端测试、签名构建及真机验证。基线为 voicehub.7 / versionCode 21，候选为 voicehub.8 / versionCode 22；不卸载、不清数据。
+状态：v9 / versionCode 23 已覆盖安装，并通过本文列出的静音真机验证。基线为 voicehub.7 / versionCode 21；中间 v8 的验收失败记录保留。未卸载、未清数据。
 
 ## 证据
 
@@ -28,4 +28,21 @@
 
 保留 voicehub.7 APK、源码基线、私有原始日志。若需回滚 App，以原签名将基线重新构建为更高 versionCode 后覆盖安装，不通过卸载丢失配置。
 
-真机、车载、弱网验证结果待补充。
+v8 的 GitHub Actions 44570556516：156 个测试套件、958 项测试全通过，签名构建完成。首次构建被依赖仓库超时阻断，第二次缺少依赖；移除未使用的开发仓库并使用全新 Gradle 缓存后成功，没有更换依赖版本。APK SHA-256：`2404cb0f76d9f52ff6e019ec9941aaccf02dda3d23d52497d1c9584c53cc3967`，签名与 v7 相同。
+
+v8 安装后，实际 UI Play 没有通过：11:58:55 EST 音频 hello/激活后马上发起的三次全量状态读取，未让 App 的 `playbackReady` 变为 true，11:59:04 Play 等待十秒后过期；重连后再次按 Play 仍同样失败。服务端当时报告该手机已连接可用。12:07 从服务端对同一手机明确 Play 后，实际 48kHz 音轨帧头从 218880 增至 322560、Underruns=0，随后手机自己的 Pause 成功且 audioReady=true。这证明音频输出本身可用，但不能用服务端启动替代 UI 的验收。
+
+v9 为此增加连接已建立但服务端可用标记未同步时的有限只读核对：0.2/0.8/2/4 秒最多四次，状态一致或断连即取消，健康时不轮询，不自行播放。用户主动按 Play 而音频已连接时也请求一次权威状态刷新；依然等待真实的 connected + available，不伪造就绪。增加“早到的不可用快照、停止查询、断连取消、健康零轮询、后来的暂停撤销待播”五项测试，补充日志分别记录 audioConnected 与 serverAvailable。
+
+## v9 完成验证
+
+- 云端 [Actions 44573514772](https://github.com/behappy-my/voice-hub-mobile/actions/runs/44573514772)，源码 `4ed7dbc2`：157 个套件、963 项测试全部通过，零跳过；签名构建成功。APK SHA-256 为 `23c475257665176876f70341fb89397fb0b1c81e395dd3a937992bf0f0fc7b62`，证书与原包相同。
+- 原机覆盖安装成功，保持账号、My Phone 选择、200 首队列和 FLAC 设置。通过 UI 的播放按钮启动，未用服务端启动来替代这轮验收。
+- 五轮 Play/Pause，包括两轮强制结束 App 后重新启动；均实际输出音频帧。指令到 PlaybackStarted 分别 1248/860/854/854/839 ms，Pause 到 PlaybackStopped 为 24/18/18/17/17 ms；不包含 UI 自动化定位耗时，不是声学测量。
+- 播放中将 App 切到 Android 设置页，音频帧持续输出；仅断开该手机的内部音频代理 TCP 连接，恢复后仍持续输出。暂停后再次断开同一连接，重连后保持停止，无活跃 AudioTrack；随后明确 Play 正常。没有触碰其他房间音箱。
+- 实际 AudioFlinger 核对 48kHz 双声道轨道帧头前进，观察点 Underruns=0。其中重连后帧头 965760 → 1067520。12:15:54 EST 第一轮冷启动触发一次有限状态补查，此后 audioConnected/serverAvailable/audioReady 均为 true，UI Play 成功。
+- 测试结束手机 idle，队列仍 200 首、索引 96；媒体音量仍为原来的 0，锁屏时间仍为原来的 1800000ms。两台 VP idle，小爱 paused。未自动恢复卧室播放。
+
+APK、ZIP、构建及验收摘要已放 NAS `/mnt/user/Files/VoiceHub/Android/`，供 Nextcloud 外部存储入口读取。原始私有日志和逐轮结果在 hearth `/home/mk/.local/state/voicehub-diagnostics/mobile-20261119/phone/`，未公开录音、凭据或日志原文。
+
+边界：这轮为家庭 Wi-Fi 上的静音测试，没有车载蓝牙真实行程或通话/其他 App 麦克风切换测试。原始网络停顿的具体跳点仍未确定；真实手机的历史 MediaCodec Released-state 故障未强行重现，其有界恢复和失败后停止由自动测试覆盖。不能将这些结果称作所有车载断流问题已根治。
