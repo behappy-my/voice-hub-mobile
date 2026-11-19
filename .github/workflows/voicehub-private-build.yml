@@ -48,7 +48,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: voicehub-mobile-8-build
+          name: voicehub-mobile-9-build
           path: |
             androidApp/build/outputs/apk/selfSignedRelease/*.apk
             **/build/test-results/**/*.xml

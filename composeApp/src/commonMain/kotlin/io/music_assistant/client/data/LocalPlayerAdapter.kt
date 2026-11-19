@@ -174,12 +174,27 @@ class LocalPlayerAdapter(
         send = apiClient::sendRequest,
         scope = this,
         playbackReady = playbackReady,
-        requestRecovery = apiClient::requestCommandRecovery,
+        requestRecovery = {
+            apiClient.requestCommandRecovery()
+            // A healthy control socket needs no reconnect, but its last player
+            // snapshot may predate the audio registration. Refresh on user intent.
+            if (player.state.value is PlayerState.Connected && !serverPlayerAvailable.value) {
+                _needsServerRefresh.tryEmit(Unit)
+            }
+        },
     )
     private var pendingPlayTimeoutJob: Job? = null
     private var pausedByInterruption = false
 
     init {
+        reconcileLocalReadiness(
+            scope = this,
+            connected = player.state.map { it is PlayerState.Connected },
+            available = serverPlayerAvailable,
+        ) {
+            log.i { "Audio connected before server availability: refreshing authoritative player state" }
+            _needsServerRefresh.emit(Unit)
+        }
         launch { player.events.collect(::onPlayerEvent) }
         launch {
             // The server addresses the local player by the module's identity; keep the
@@ -273,7 +288,7 @@ class LocalPlayerAdapter(
      */
     fun handleLocalCommand(data: PlayerData, action: PlayerAction) {
         val resolved = playerRequestFactory.resolve(data, resolveLocalToggle(data, action))
-        log.i { "Local command: action=$resolved player=${data.player.id} ready=${apiClient.isReadyForCommands.value} audioReady=${playbackReady.value}" }
+        log.i { "Local command: action=$resolved player=${data.player.id} ready=${apiClient.isReadyForCommands.value} audioReady=${playbackReady.value} audioConnected=${player.state.value is PlayerState.Connected} serverAvailable=${serverPlayerAvailable.value}" }
         when (resolved) {
             PlayerAction.Play, PlayerAction.Pause, PlayerAction.Next, PlayerAction.Previous,
             is PlayerAction.SeekTo, is PlayerAction.SeekBy -> pausedByInterruption = false
