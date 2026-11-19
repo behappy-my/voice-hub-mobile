@@ -290,7 +290,12 @@ internal class SendspinPlayerImpl(
                     AudioEvent.FocusLost -> PlayerEvent.PlaybackStopped(StopCause.FocusLost)
                     AudioEvent.FocusRegained -> PlayerEvent.FocusRegained
                     AudioEvent.SinkDied -> PlayerEvent.PlaybackStopped(StopCause.SinkFailed)
-                    is AudioEvent.DecoderFailed -> PlayerEvent.Warning(WarningCode.DecoderFailed(codecOf(event.codec)))
+                    is AudioEvent.DecoderFailed -> {
+                        _events.tryEmit(PlayerEvent.Warning(WarningCode.DecoderFailed(codecOf(event.codec))))
+                        // The pipeline has ended. A warning alone leaves the
+                        // server queue playing while the phone produces silence.
+                        PlayerEvent.PlaybackStopped(StopCause.SinkFailed)
+                    }
                     is AudioEvent.UnsupportedFormat -> PlayerEvent.Warning(WarningCode.UnsupportedFormat(event.codec))
                 }
                 _events.tryEmit(mapped)

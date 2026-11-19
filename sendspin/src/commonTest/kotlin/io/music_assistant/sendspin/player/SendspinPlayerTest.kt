@@ -73,6 +73,7 @@ class SendspinPlayerTest {
         val keyStore = FakeSendspinKeyStore()
         val clock = MonotonicClock { scope.currentTime * 1_000 }
         val sink = FakeSink { clock.nowMicros() }
+        val decoders = FakeDecoderFactory()
         val transports = Channel<FakeTransport>(Channel.UNLIMITED)
         val handedOut = mutableListOf<FakeTransport>()
         val endpoint = Endpoint.WebRtc {
@@ -106,7 +107,7 @@ class SendspinPlayerTest {
             sharedPsk?.let(store::addSharedRecord)
             val deps = SendspinDeps(
                 sink = sink,
-                decoders = FakeDecoderFactory(),
+                decoders = decoders,
                 keyStore = keyStore,
                 httpClient = httpClient,
                 online = online,
@@ -351,6 +352,29 @@ class SendspinPlayerTest {
         advanceTimeBy(1_500)
         runCurrent()
         assertEquals(PlayerEvent.PlaybackStopped(StopCause.Starved), h.nextEvent())
+    }
+
+    @Test
+    fun terminalDecodeFailureNotifiesTheAppToStopAndFreshPlayCanRecover() = playerTest { h ->
+        val server = h.connectServer()
+        h.awaitConnected()
+        h.nextEvent()
+        server.startStream()
+        server.sendAudio(4, currentTime * 1_000, h.pcm(10))
+        runCurrent()
+        assertIs<PlayerEvent.PlaybackStarted>(h.nextEvent())
+        h.decoders.failing = true
+        repeat(5) { server.sendAudio(4, currentTime * 1_000 + (it + 1) * 10_000L, h.pcm(10)) }
+        advanceTimeBy(100)
+        runCurrent()
+        assertEquals(PlayerEvent.Warning(WarningCode.DecoderFailed(AudioCodec.FLAC)), h.nextEvent())
+        assertEquals(PlayerEvent.PlaybackStopped(StopCause.SinkFailed), h.nextEvent())
+        assertEquals(AudioPhase.Idle, (h.player.state.value as PlayerState.Connected).audio.phase)
+        h.decoders.failing = false
+        server.startStream()
+        server.sendAudio(4, currentTime * 1_000, h.pcm(10))
+        runCurrent()
+        assertIs<PlayerEvent.PlaybackStarted>(h.nextEvent())
     }
 
     @Test

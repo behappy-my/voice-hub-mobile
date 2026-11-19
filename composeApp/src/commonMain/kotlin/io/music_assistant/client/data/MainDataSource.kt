@@ -908,6 +908,7 @@ class MainDataSource(
             .getOrNull()?.resultAs<List<DspConfigPreset>>() ?: emptyList()
 
     fun selectPlayer(player: Player) {
+        log.i { "Playback target selection: previous=${_userSelectedPlayerId.value} next=${player.id} available=${player.isAvailable}" }
         // User-driven selection (UI player picker). Writes through
         // [_userSelectedPlayerId] so the choice persists; the persistence
         // launch in [init] mirrors it into [SettingsRepository] for the next

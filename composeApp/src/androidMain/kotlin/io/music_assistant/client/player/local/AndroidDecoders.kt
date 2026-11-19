@@ -13,6 +13,7 @@ import io.music_assistant.sendspin.api.AudioCodec
 import io.music_assistant.sendspin.api.AudioDecoder
 import io.music_assistant.sendspin.api.AudioFormatSpec
 import io.music_assistant.sendspin.api.DecoderFactory
+import io.music_assistant.sendspin.api.RecoveringAudioDecoder
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import io.github.jaredmdobson.concentus.OpusDecoder as ConcentusOpusDecoder
@@ -22,7 +23,7 @@ class AndroidDecoderFactory : DecoderFactory {
     override fun supports(codec: AudioCodec): Boolean = true
 
     override fun create(codec: AudioCodec): AudioDecoder = when (codec) {
-        AudioCodec.FLAC -> FlacDecoder()
+        AudioCodec.FLAC -> RecoveringAudioDecoder { FlacDecoder() }
         AudioCodec.OPUS -> OpusDecoder()
         AudioCodec.PCM -> PcmDecoder()
     }
@@ -87,9 +88,14 @@ internal class FlacDecoder : AudioDecoder {
                 logger.w { "No codec header for FLAC; the decoder may fail" }
             }
         }
-        codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_FLAC).also {
-            it.configure(mediaFormat, null, null, 0)
-            it.start()
+        val next = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_FLAC)
+        try {
+            next.configure(mediaFormat, null, null, 0)
+            next.start()
+            codec = next
+        } catch (e: Exception) {
+            runCatching { next.release() }
+            throw e
         }
     }
 
@@ -119,7 +125,9 @@ internal class FlacDecoder : AudioDecoder {
             out.toByteArray()
         } catch (e: IllegalStateException) {
             logger.e(e) { "MediaCodec error during decode" }
-            ByteArray(0)
+            // The bounded wrapper recreates a released/error-state codec with
+            // the original STREAMINFO, then retries this frame once.
+            throw e
         }
     }
 
@@ -171,26 +179,16 @@ internal class FlacDecoder : AudioDecoder {
     }
 
     override fun reset() {
-        val current = codec ?: return
-        try {
-            current.flush()
-        } catch (e: IllegalStateException) {
-            logger.w(e) { "FLAC flush failed; restarting the codec" }
-            runCatching {
-                current.stop()
-                current.start()
-            }.onFailure { release() }
-        }
+        // stop()+start() is invalid without configure(). Let the wrapper
+        // recreate and configure the codec if flushing fails.
+        codec?.flush()
     }
 
     override fun release() {
-        codec?.let {
-            runCatching {
-                it.stop()
-                it.release()
-            }
-        }
+        val previous = codec
         codec = null
+        runCatching { previous?.stop() }
+        runCatching { previous?.release() }
     }
 
     private companion object {
