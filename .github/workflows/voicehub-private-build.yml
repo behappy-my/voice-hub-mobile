@@ -19,6 +19,13 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+      - name: Verify public dependency repository
+        run: |
+          url=https://repo.maven.apache.org/maven2/org/jetbrains/annotations/13.0/annotations-13.0.pom
+          curl --fail --retry 2 --max-time 20 -I "$url"
+          curl --fail --retry 2 --max-time 20 -o /tmp/annotations.pom -w 'POM GET: %{http_code}, bytes=%{size_download}\n' "$url"
       - name: Restore private signing material
         env:
           SIGNING: ${{ secrets.VOICEHUB_SIGNING_BUNDLE }}
@@ -35,7 +42,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as f:f.write('VOICEHUB_SIGNING_PROPERTIES='+str(root/'signing.properties')+'\n')
           PY
       - name: Recovery and audio regression tests
-        run: ./gradlew --no-daemon --max-workers=2 -Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process testAndroidHostTest :androidApp:testDebugUnitTest
+        run: ./gradlew --no-daemon --refresh-dependencies --info --max-workers=2 -Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process testAndroidHostTest :androidApp:testDebugUnitTest
       - name: Build signed arm64 APK
         run: ./gradlew --no-daemon --max-workers=2 -Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process :androidApp:assembleSelfSignedRelease
       - uses: actions/upload-artifact@v4
